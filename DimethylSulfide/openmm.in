@@ -1,0 +1,46 @@
+#===========================================#
+#|     Input file for OpenMM MD script     |#
+#|  Lines beginning with '#' are comments  |#
+#===========================================#
+
+#===========================================#
+#|   Active options at default values:     |#
+#===========================================#
+integrator                           verlet # (str)    Molecular dynamics integrator. Allowed values are ['verlet', 'langevin']
+minimize                              False # (bool)   Specify whether to minimize the energy before running dynamics.
+timestep                                1.0 # (float)  Time step in femtoseconds.
+equilibrate                            1000 # (int)    Number of steps reserved for equilibration.
+production                            10000 # (int)    Number of steps in production run.
+report_interval                         100 # (int)    Number of steps between every progress report.
+temperature                           290.0 # (float)  Simulation temperature for Langevin integrator or Andersen thermostat.
+gentemp                                 0.0 # (float)  Specify temperature for generating velocities.
+nonbonded_cutoff                        0.9 # (float)  Nonbonded cutoff distance in nanometers.
+platform                               CUDA # (str)    The simulation platform. Allowed values are [None, 'Reference', 'CUDA', 'OpenCL']
+energy_decomposition                  False # (bool)   Perform a single energy decomposition and then exit.
+initial_report                        False # (bool)   Perform one Report prior to running any dynamics.
+rigidwater                            False # (bool)   Make water molecules rigid.
+serialize                              None # (str)    Provide a file name for writing the serialized System object.
+pressure                                1.0 # (float)  Simulation pressure; set a positive number to activate.
+pdb_report_interval                     250 # (int)    Specify a timestep interval for PDB reporter.
+eda_report_interval                      50 # (int)    Specify a timestep interval for Energy reporter.
+dcd_report_interval                     150 # (int)    Specify a timestep interval for DCD reporter.
+collision_rate                          0.1 # (float)  Collision frequency for Langevin integrator or Andersen thermostat in ps^-1.
+nbarostat                                25 # (int)    Step interval for MC barostat volume adjustments.
+cuda_precision                       single # (str)    The precision of the CUDA platform. Allowed values are ['single', 'mixed', 'double']
+device                                    0 # (int)    Specify the device (GPU) number.
+
+#===========================================#
+#|   Deactivated or conflicting options:   |#
+#===========================================#
+collision_rate                          0.1 # (float)  Collision frequency for Langevin integrator or Andersen thermostat in ps^-1.
+                                            # Reason : We're not running a constant temperature simulation
+nbarostat                                25 # (int)    Step interval for MC barostat volume adjustments.
+                                            # Reason : We're not running a constant pressure simulation
+cuda_precision                       single # (str)    The precision of the CUDA platform. Allowed values are ['single', 'mixed', 'double']
+                                            # Reason : The simulation platform needs to be set to CUDA
+device                                    0 # (int)    Specify the device (GPU) number.
+                                            # Reason : The simulation platform needs to be set to CUDA or OpenCL
+
+#===========================================#
+#|           End of Input File             |#
+#===========================================#

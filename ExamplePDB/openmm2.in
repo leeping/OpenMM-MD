@@ -1,0 +1,20 @@
+integrator                         langevin # (str)    Molecular dynamics integrator. Allowed values are ['verlet', 'langevin']
+minimize                               True # (bool)   Specify whether to minimize the energy before running dynamics.
+timestep                                2.0 # (float)  Time step in femtoseconds.
+equilibrate                            1000 # (int)    Number of steps reserved for equilibration.
+production                          1000000 # (int)    Number of steps in production run.
+report_interval                         100 # (int)    Number of steps between every progress report.
+temperature                           300.0 # (float)  Simulation temperature for Langevin integrator or Andersen thermostat.
+gentemp                               600.0 # (float)  Specify temperature for generating velocities.
+nonbonded_cutoff                        0.9 # (float)  Nonbonded cutoff distance in nanometers.
+platform                               CUDA # (str)    The simulation platform. Allowed values are [None, 'Reference', 'CUDA', 'OpenCL']
+initial_report                        False # (bool)   Perform one Report prior to running any dynamics.
+rigidwater                             True # (bool)   Make water molecules rigid.
+serialize                        system.xml # (str)    Provide a file name for writing the serialized System object.
+pdb_report_interval                     100 # (int)    Specify a timestep interval for PDB reporter.
+eda_report_interval                     100 # (int)    Specify a timestep interval for Energy reporter.
+dcd_report_interval                     100 # (int)    Specify a timestep interval for DCD reporter.
+collision_rate                          0.1 # (float)  Collision frequency for Langevin integrator or Andersen thermostat in ps^-1.
+cuda_precision                       single # (str)    The precision of the CUDA platform. Allowed values are ['single', 'mixed', 'double']
+device                                    0 # (int)    Specify the device (GPU) number.
+constraints                          HBonds

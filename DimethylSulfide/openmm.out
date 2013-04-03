@@ -1,0 +1,222 @@
+
+ #=========================================#
+ #|   OpenMM general purpose simulation   |#
+ #| Use the -h argument for detailed help |#
+ #=========================================#
+
+01:05:40 - Detected periodic boundary conditions
+01:05:40 - Detected non-AMOEBA system
+01:05:40 - Now setting up the System
+01:05:40 - --== System Information ==--
+01:05:40 - Number of particles   : 1944
+01:05:40 - Number of constraints : 0
+01:05:41 - Total system mass     : 13419.65 amu
+01:05:41 - This is a constant temperature run at 290.00 K
+01:05:41 - The stochastic thermostat collision frequency is 0.10 ps^-1
+01:05:41 - Using Verlet integrator with Andersen thermostat
+01:05:41 - This is a constant pressure run at 1.00 atm pressure
+01:05:41 - Adding Monte Carlo barostat with volume adjustment interval 25
+01:05:41 - Setting Platform to CUDA
+01:05:41 - Setting Device to 0
+01:05:41 - Creating the Simulation object
+
+##########################################################
+#| [92m           Platform CUDA has properties:            [0m |#
+##########################################################
+CudaCompiler              /usr/local/cuda/bin/nvcc 
+CudaDeviceIndex           0 
+CudaPrecision             single 
+CudaTempDirectory         /tmp 
+CudaUseBlockingSync       true 
+----------------------------------------------------------
+
+Your command was: ../OpenMM-MD.py conf.pdb dms_gaff.xml -I openmm.in
+To reproduce / customize your simulation, paste the following text into an input file
+and rerun the script with the -I argument (e.g. '-I openmm.in')
+
+#===========================================#
+#|     Input file for OpenMM MD script     |#
+#|  Lines beginning with '#' are comments  |#
+#===========================================#
+
+#===========================================#
+#|          User-supplied options:         |#
+#===========================================#
+integrator                           verlet # (str)    Molecular dynamics integrator. Allowed values are ['verlet', 'langevin']
+minimize                              False # (bool)   Specify whether to minimize the energy before running dynamics.
+timestep                                1.0 # (float)  Time step in femtoseconds.
+equilibrate                            1000 # (int)    Number of steps reserved for equilibration.
+production                            10000 # (int)    Number of steps in production run.
+report_interval                         100 # (int)    Number of steps between every progress report.
+temperature                           290.0 # (float)  Simulation temperature for Langevin integrator or Andersen thermostat.
+gentemp                                 0.0 # (float)  Specify temperature for generating velocities.
+collision_rate                          0.1 # (float)  Collision frequency for Langevin integrator or Andersen thermostat in ps^-1.
+pressure                                1.0 # (float)  Simulation pressure; set a positive number to activate.
+nbarostat                                25 # (int)    Step interval for MC barostat volume adjustments.
+nonbonded_cutoff                        0.9 # (float)  Nonbonded cutoff distance in nanometers.
+platform                               CUDA # (str)    The simulation platform. Allowed values are [None, 'Reference', 'CUDA', 'OpenCL']
+cuda_precision                       single # (str)    The precision of the CUDA platform. Allowed values are ['single', 'mixed', 'double']
+device                                    0 # (int)    Specify the device (GPU) number.
+initial_report                        False # (bool)   Perform one Report prior to running any dynamics.
+rigidwater                            False # (bool)   Make water molecules rigid.
+serialize                              None # (str)    Provide a file name for writing the serialized System object.
+pdb_report_interval                     250 # (int)    Specify a timestep interval for PDB reporter.
+dcd_report_interval                     150 # (int)    Specify a timestep interval for DCD reporter.
+eda_report_interval                      50 # (int)    Specify a timestep interval for Energy reporter.
+
+#===========================================#
+#|   Active options at default values:     |#
+#===========================================#
+restart_filename                  restart.p # (str)    Restart information will be read from / written to this file (will be backed up).
+restart                                True # (bool)   Restart simulation from the restart file.
+constraints                            None # (str)    Specify constraints. Allowed values are [None, 'HBonds', 'AllBonds', 'HAngles']
+pdb_report_filename         output_conf.pdb # (str)    Specify an file name for writing output PDB file.
+dcd_report_filename         output_conf.dcd # (str)    Specify an file name for writing output DCD file.
+eda_report_filename         output_conf.eda # (str)    Specify an file name for writing output Energy file.
+
+#===========================================#
+#|   Deactivated or conflicting options:   |#
+#===========================================#
+polarization_direct                   False # (bool)   Use direct polarization in AMOEBA force field.
+                                            # Reason : Not simulating an AMOEBA system
+polar_eps                             1e-05 # (float)  Polarizable dipole convergence parameter in AMOEBA force field.
+                                            # Reason : Not simulating an AMOEBA system
+vdw_cutoff                              0.9 # (float)  Separate vdW cutoff distance in nanometers for AMOEBA simulation.
+                                            # Reason : Not simulating an AMOEBA system
+pmegrid                                None # (list)   Set the PME grid for AMOEBA simulations.
+                                            # Reason : Not simulating an AMOEBA system
+tinkerpath                             None # (str)    Specify a path for TINKER executables for running AMOEBA validation.
+                                            # Reason : Not simulating an AMOEBA system
+
+#===========================================#
+#|          Unrecognized options:          |#
+#===========================================#
+energy_decomposition                  False
+
+#===========================================#
+#|           End of Input File             |#
+#===========================================#
+Restarting simulation from the restart file.
+01:05:51 - --== Production (10000 steps, 10.00 ps) ==--
+01:05:51 - Progress will be reported every 100 steps
+01:05:51 - Backing up output_conf.pdb -> output_conf_1.pdb
+01:05:51 - PDB Reporter will write to output_conf.pdb every 250 steps
+01:05:51 - Backing up output_conf.dcd -> output_conf_1.dcd
+01:05:51 - DCD Reporter will write to output_conf.dcd every 150 steps
+01:05:51 - Backing up output_conf.eda -> output_conf_1.eda
+01:05:51 - Energy Reporter will write to output_conf.eda every 50 steps
+01:05:52 - Progress        E.T.A  Time(ps)   Temp(K)       Pot(kJ)   Vol(nm3)    Rho(kg/m3)
+01:05:52 -   1.000%          49s     0.100   171.752      -881.530    23.9000      932.3789
+01:05:52 -   2.000%          51s     0.200   167.786      -752.746    24.1526      922.6258
+01:05:53 -   3.000%          51s     0.300   172.858      -864.252    24.1310      923.4521
+01:05:53 -   4.000%          51s     0.400   175.887      -893.327    24.0154      927.8967
+01:05:54 -   5.000%          50s     0.500   167.066      -672.059    24.2208      920.0281
+01:05:54 -   6.000%          50s     0.600   165.321      -618.430    24.3009      916.9975
+01:05:55 -   7.000%          50s     0.700   170.283      -730.762    24.0796      925.4234
+01:05:55 -   8.000%          50s     0.800   171.356      -735.899    24.0407      926.9210
+01:05:56 -   9.000%          49s     0.900   170.164      -699.164    24.1206      923.8526
+01:05:56 -  10.000%          48s     1.000   169.331      -660.865    23.9707      929.6282
+01:05:57 -  11.000%          48s     1.100   169.324      -647.044    24.0898      925.0322
+01:05:58 -  12.000%          47s     1.200   171.091      -642.200    24.0326      927.2328
+01:05:58 -  13.000%          47s     1.300   171.200      -604.639    24.5630      907.2114
+01:05:59 -  14.000%          46s     1.400   174.352      -673.427    24.6052      905.6555
+01:05:59 -  15.000%          46s     1.500   172.805      -639.637    24.4356      911.9413
+01:06:00 -  16.000%          45s     1.600   173.913      -645.651    24.3750      914.2102
+01:06:00 -  17.000%          45s     1.700   176.930      -700.325    24.3187      916.3250
+01:06:01 -  18.000%          44s     1.800   177.868      -709.405    24.0002      928.4844
+01:06:01 -  19.000%          44s     1.900   177.462      -689.416    23.9964      928.6344
+01:06:02 -  20.000%          43s     2.000   179.769      -734.261    23.8569      934.0623
+01:06:03 -  21.000%          43s     2.100   181.699      -767.006    24.0530      926.4487
+01:06:03 -  22.000%          42s     2.200   179.894      -689.315    23.8774      933.2627
+01:06:04 -  23.000%          42s     2.300   179.304      -646.461    23.6529      942.1197
+01:06:04 -  24.000%          41s     2.400   178.541      -610.264    23.5976      944.3263
+01:06:05 -  25.000%          41s     2.500   182.299      -668.114    23.8859      932.9305
+01:06:05 -  26.000%          40s     2.600   180.955      -627.702    23.8555      934.1190
+01:06:06 -  27.000%          39s     2.700   179.236      -568.568    24.2575      918.6384
+01:06:06 -  28.000%          39s     2.800   175.649      -438.508    24.3611      914.7291
+01:06:07 -  29.000%          38s     2.900   177.909      -491.021    24.1734      921.8329
+01:06:07 -  30.000%          38s     3.000   180.430      -539.717    24.1368      923.2312
+01:06:08 -  31.000%          37s     3.100   181.953      -542.928    24.2934      917.2814
+01:06:09 -  32.000%          37s     3.200   180.874      -508.895    24.0638      926.0334
+01:06:09 -  33.000%          36s     3.300   182.833      -541.681    24.2449      919.1160
+01:06:10 -  34.000%          36s     3.400   180.949      -468.390    24.0038      928.3453
+01:06:10 -  35.000%          35s     3.500   185.647      -569.526    24.0532      926.4390
+01:06:11 -  36.000%          35s     3.600   181.151      -438.536    24.1993      920.8453
+01:06:11 -  37.000%          34s     3.700   179.850      -404.201    24.0512      926.5176
+01:06:12 -  38.000%          34s     3.800   181.544      -439.250    24.0512      926.5176
+01:06:12 -  39.000%          33s     3.900   182.666      -459.984    24.0216      927.6586
+01:06:13 -  40.000%          32s     4.000   177.987      -321.241    23.9343      931.0410
+01:06:14 -  41.000%          32s     4.100   179.825      -349.067    24.2177      920.1471
+01:06:14 -  42.000%          31s     4.200   183.265      -443.325    24.0322      927.2488
+01:06:15 -  43.000%          31s     4.300   186.293      -476.745    24.0979      924.7207
+01:06:15 -  44.000%          30s     4.400   187.384      -460.162    23.7882      936.7613
+01:06:16 -  45.000%          30s     4.500   189.322      -470.590    23.8249      935.3164
+01:06:16 -  46.000%          29s     4.600   188.167      -456.973    23.9138      931.8402
+01:06:17 -  47.000%          29s     4.700   190.120      -469.771    23.7285      939.1177
+01:06:17 -  48.000%          28s     4.800   193.926      -552.107    23.8476      934.4278
+01:06:18 -  49.000%          27s     4.900   187.257      -374.397    23.9401      930.8167
+01:06:18 -  50.000%          27s     5.000   183.792      -280.167    23.9296      931.2261
+01:06:19 -  51.000%          26s     5.100   188.443      -374.758    23.9010      932.3400
+01:06:20 -  52.000%          26s     5.200   187.033      -320.116    24.0472      926.6704
+01:06:20 -  53.000%          25s     5.300   188.822      -357.299    23.8990      932.4179
+01:06:21 -  54.000%          25s     5.400   193.576      -453.138    23.5944      944.4545
+01:06:21 -  55.000%          24s     5.500   196.804      -502.567    23.8517      934.2679
+01:06:22 -  56.000%          24s     5.600   190.505      -342.889    23.8915      932.7111
+01:06:22 -  57.000%          23s     5.700   190.815      -359.052    23.6366      942.7685
+01:06:23 -  58.000%          23s     5.800   194.743      -453.218    23.7347      938.8722
+01:06:23 -  59.000%          22s     5.900   191.576      -296.028    24.1408      923.0797
+01:06:24 -  60.000%          21s     6.000   190.887      -254.535    24.2156      920.2267
+01:06:24 -  61.000%          21s     6.100   193.689      -310.494    23.9811      929.2265
+01:06:25 -  62.000%          20s     6.200   193.789      -321.899    24.0461      926.7148
+01:06:26 -  63.000%          20s     6.300   192.807      -256.718    24.2176      920.1524
+01:06:26 -  64.000%          19s     6.400   192.402      -251.010    24.1611      922.3013
+01:06:27 -  65.000%          19s     6.500   194.790      -282.278    24.4436      911.6419
+01:06:27 -  66.000%          18s     6.600   189.965      -149.383    24.0417      926.8829
+01:06:28 -  67.000%          18s     6.700   189.373      -117.289    24.3526      915.0514
+01:06:28 -  68.000%          17s     6.800   195.219      -250.806    24.1059      924.4156
+01:06:29 -  69.000%          16s     6.900   197.420      -287.615    24.0599      926.1807
+01:06:29 -  70.000%          16s     7.000   193.796      -194.558    24.1422      923.0252
+01:06:30 -  71.000%          15s     7.100   193.692      -170.868    24.2759      917.9405
+01:06:30 -  72.000%          15s     7.200   191.173       -85.293    24.2598      918.5507
+01:06:31 -  73.000%          14s     7.300   195.657      -168.113    24.5824      906.4958
+01:06:32 -  74.000%          14s     7.400   188.644        -7.175    24.6290      904.7799
+01:06:32 -  75.000%          13s     7.500   193.545      -109.074    24.7130      901.7072
+01:06:33 -  76.000%          13s     7.600   192.479       -59.910    24.3140      916.5010
+01:06:33 -  77.000%          12s     7.700   192.253       -41.187    24.4511      911.3620
+01:06:34 -  78.000%          12s     7.800   197.457      -130.327    24.5747      906.7815
+01:06:34 -  79.000%          11s     7.900   199.014      -153.596    24.3829      913.9126
+01:06:35 -  80.000%          10s     8.000   199.145      -129.451    24.1451      922.9152
+01:06:35 -  81.000%          10s     8.100   200.911      -174.260    24.5065      909.3026
+01:06:36 -  82.000%           9s     8.200   197.029       -86.633    24.1324      923.3997
+01:06:37 -  83.000%           9s     8.300   199.234      -141.188    24.1432      922.9845
+01:06:37 -  84.000%           8s     8.400   195.746       -49.755    24.5972      905.9514
+01:06:38 -  85.000%           8s     8.500   197.152       -66.628    24.6278      904.8254
+01:06:38 -  86.000%           7s     8.600   196.992       -45.063    24.6068      905.5963
+01:06:39 -  87.000%           7s     8.700   198.141       -57.131    24.5466      907.8169
+01:06:39 -  88.000%           6s     8.800   196.505         9.614    24.4975      909.6358
+01:06:40 -  89.000%           6s     8.900   193.490       102.618    24.6532      903.8918
+01:06:40 -  90.000%           5s     9.000   201.484       -75.989    24.3194      916.2990
+01:06:41 -  91.000%           4s     9.100   202.957       -98.758    24.1492      922.7580
+01:06:41 -  92.000%           4s     9.200   196.002       114.824    24.2368      919.4228
+01:06:42 -  93.000%           3s     9.300   199.562        52.199    24.3461      915.2942
+01:06:42 -  94.000%           3s     9.400   199.525        62.904    24.1709      921.9272
+01:06:43 -  95.000%           2s     9.500   206.840       -86.736    23.8817      933.0947
+01:06:44 -  96.000%           2s     9.600   206.047       -34.498    24.2546      918.7487
+01:06:44 -  97.000%           1s     9.700   205.816        -1.451    24.1325      923.3951
+01:06:45 -  98.000%           1s     9.800   202.108        91.269    24.0948      924.8404
+01:06:45 -  99.000%         None     9.900   204.379        50.594    24.3207      916.2517
+01:06:46 - 100.000%         None    10.000   206.425         0.344    24.3174      916.3752
+
+######################################################################################
+#| [92m             Summary statistics - total simulation time 10.000 ps:              [0m |#
+#| [92m Quantity                           Mean        Stdev       Stderr    Acorr(ps) [0m |#
+######################################################################################
+potential (kilojoule/mole)         -368.940      261.932      149.182        1.572 
+temperature (kelvin)                187.231       10.421        5.869        1.536 
+density (kilogram/(meter**3))       922.972        9.643        3.109        0.470 
+volume (nanometer**3)                24.146        0.253        0.082        0.472 
+--------------------------------------------------------------------------------------
+01:06:46 - Backing up restart.p -> restart_1.p
+01:06:46 - Restart information will be written to restart.p
+Wall time:  66.3812 seconds
+Simulation speed:  13.0157 ns/day

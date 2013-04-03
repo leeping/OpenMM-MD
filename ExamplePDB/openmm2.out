@@ -1,0 +1,111 @@
+
+ #=========================================#
+ #|   OpenMM general purpose simulation   |#
+ #| Use the -h argument for detailed help |#
+ #=========================================#
+
+00:28:17 - Detected periodic boundary conditions
+00:28:18 - Detected non-AMOEBA system
+00:28:18 - Now setting up the System
+00:28:19 - --== System Information ==--
+00:28:19 - Number of particles   : 8867
+00:28:19 - Number of constraints : 8283
+00:28:19 - Total system mass     : 53894.95 amu
+00:28:19 - This is a constant temperature run at 300.00 K
+00:28:19 - The stochastic thermostat collision frequency is 0.10 ps^-1
+00:28:19 - Creating a Langevin integrator
+00:28:19 - This is a constant volume run
+00:28:19 - Setting Platform to CUDA
+00:28:19 - Setting Device to 0
+00:28:19 - Creating the Simulation object
+00:28:27 - Serializing the system
+00:28:27 - Backing up system.xml -> system_3.xml
+
+##########################################################
+#| [92m           Platform CUDA has properties:            [0m |#
+##########################################################
+CudaCompiler              /usr/local/cuda/bin/nvcc 
+CudaDeviceIndex           0 
+CudaPrecision             single 
+CudaTempDirectory         /tmp 
+CudaUseBlockingSync       true 
+----------------------------------------------------------
+
+Your command was: ../OpenMM-MD.py input.pdb amber99sb.xml tip3p.xml -I openmm2.in
+To reproduce / customize your simulation, paste the following text into an input file
+and rerun the script with the -I argument (e.g. '-I openmm.in')
+
+#===========================================#
+#|     Input file for OpenMM MD script     |#
+#|  Lines beginning with '#' are comments  |#
+#===========================================#
+
+#===========================================#
+#|          User-supplied options:         |#
+#===========================================#
+integrator                         langevin # (str)    Molecular dynamics integrator. Allowed values are ['verlet', 'langevin']
+minimize                               True # (bool)   Specify whether to minimize the energy before running dynamics.
+timestep                                2.0 # (float)  Time step in femtoseconds.
+equilibrate                            1000 # (int)    Number of steps reserved for equilibration.
+production                          1000000 # (int)    Number of steps in production run.
+report_interval                         100 # (int)    Number of steps between every progress report.
+temperature                           300.0 # (float)  Simulation temperature for Langevin integrator or Andersen thermostat.
+gentemp                               600.0 # (float)  Specify temperature for generating velocities.
+collision_rate                          0.1 # (float)  Collision frequency for Langevin integrator or Andersen thermostat in ps^-1.
+nonbonded_cutoff                        0.9 # (float)  Nonbonded cutoff distance in nanometers.
+platform                               CUDA # (str)    The simulation platform. Allowed values are [None, 'Reference', 'CUDA', 'OpenCL']
+cuda_precision                       single # (str)    The precision of the CUDA platform. Allowed values are ['single', 'mixed', 'double']
+device                                    0 # (int)    Specify the device (GPU) number.
+initial_report                        False # (bool)   Perform one Report prior to running any dynamics.
+constraints                          HBonds # (str)    Specify constraints. Allowed values are ['none', 'HBonds', 'AllBonds', 'HAngles']
+rigidwater                             True # (bool)   Make water molecules rigid.
+serialize                        system.xml # (str)    Provide a file name for writing the serialized System object.
+pdb_report_interval                     100 # (int)    Specify a timestep interval for PDB reporter.
+dcd_report_interval                     100 # (int)    Specify a timestep interval for DCD reporter.
+eda_report_interval                     100 # (int)    Specify a timestep interval for Energy reporter.
+
+#===========================================#
+#|   Active options at default values:     |#
+#===========================================#
+restart_filename                  restart.p # (str)    Restart information will be read from / written to this file (will be backed up).
+restart                                True # (bool)   Restart simulation from the restart file.
+pressure                                0.0 # (float)  Simulation pressure; set a positive number to activate.
+pdb_report_filename        output_input.pdb # (str)    Specify an file name for writing output PDB file.
+dcd_report_filename        output_input.dcd # (str)    Specify an file name for writing output DCD file.
+eda_report_filename        output_input.eda # (str)    Specify an file name for writing output Energy file.
+
+#===========================================#
+#|   Deactivated or conflicting options:   |#
+#===========================================#
+nbarostat                                25 # (int)    Step interval for MC barostat volume adjustments.
+                                            # Reason : We're not running a constant pressure simulation
+polarization_direct                   False # (bool)   Use direct polarization in AMOEBA force field.
+                                            # Reason : Not simulating an AMOEBA system
+polar_eps                             1e-05 # (float)  Polarizable dipole convergence parameter in AMOEBA force field.
+                                            # Reason : Not simulating an AMOEBA system
+vdw_cutoff                              0.9 # (float)  Separate vdW cutoff distance in nanometers for AMOEBA simulation.
+                                            # Reason : Not simulating an AMOEBA system
+pmegrid                                None # (list)   Set the PME grid for AMOEBA simulations.
+                                            # Reason : Not simulating an AMOEBA system
+tinkerpath                             None # (str)    Specify a path for TINKER executables for running AMOEBA validation.
+                                            # Reason : Not simulating an AMOEBA system
+
+#===========================================#
+#|           End of Input File             |#
+#===========================================#
+Restarting simulation from the restart file.
+00:28:28 - --== Production (1000000 steps, 2000.00 ps) ==--
+00:28:28 - Progress will be reported every 100 steps
+00:28:28 - PDB Reporter will write to output_input.pdb every 100 steps
+00:28:28 - DCD Reporter will write to output_input.dcd every 100 steps
+00:28:28 - Energy Reporter will write to output_input.eda every 100 steps
+00:28:30 - Progress        E.T.A  Time(ps)   Temp(K)       Pot(kJ)   Vol(nm3)    Rho(kg/m3)
+00:28:30 -   0.010%     6h51m24s     0.200   319.749   -114487.959    87.8659     1018.5373
+00:28:33 -   0.020%      7h15m3s     0.400   327.000   -115129.915    87.8659     1018.5373
+00:28:36 -   0.030%     7h23m22s     0.600   326.058   -115026.465    87.8659     1018.5373
+00:28:38 -   0.040%     7h28m43s     0.800   322.597   -114721.287    87.8659     1018.5373
+00:28:41 -   0.050%     7h30m42s     1.000   326.970   -115097.170    87.8659     1018.5373
+00:28:44 -   0.060%     7h32m39s     1.200   323.063   -114867.798    87.8659     1018.5373
+00:28:47 -   0.070%      7h34m8s     1.400   323.377   -114849.070    87.8659     1018.5373
+00:28:50 -   0.080%     7h34m50s     1.600   325.418   -114986.546    87.8659     1018.5373
+00:28:52 -   0.090%      7h36m9s     1.800   325.775   -115004.164    87.8659     1018.5373
