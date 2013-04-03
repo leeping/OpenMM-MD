@@ -303,8 +303,6 @@ class SimulationOptions(object):
         self.Documentation[key] = "%-8s " % ("(" + sub("'>","",sub("<type '","",str(typ)))+")") + doc
         if key in self.UserOptions:
             val = self.UserOptions[key]
-            # if val != None and clash:
-            #     raise Exception("Tried to set option \x1b[1;91m%s\x1b[0m to \x1b[94m%s\x1b[0m but there was a clash %s" % (key, str(val), "; \x1b[92m%s\x1b[0m" % cmsg if cmsg != None else ""))
         else:
             val = default
         if type(allowed) is list:
@@ -323,8 +321,25 @@ class SimulationOptions(object):
             if key in self.ActiveOptions:
                 del self.ActiveOptions[key]
             self.InactiveOptions[key] = val
-            if msg != None:
-                self.InactiveWarnings[key] = msg
+            self.InactiveWarnings[key] = msg
+
+    def force_active(self,key,val,msg=None):
+        """ Force an option to be active and set it to the provided value,
+        regardless of the user input.  There are no safeguards, so use carefully.
+        
+        key     : The name of the option.
+        val     : The value that the option is being set to.
+        msg     : A warning that is printed out if the option is not activated.
+        """
+        if key not in self.ActiveOptions:
+            del self.InactiveOptions[key]
+            self.ActiveOptions[key] = val
+            self.ForcedOptions[key] = val
+            self.ForcedWarnings[key] = msg
+        elif self.ActiveOptions[key] != val:
+            self.ActiveOptions[key] = val
+            self.ForcedOptions[key] = val
+            self.ForcedWarnings[key] = msg
 
     def deactivate(self,key,msg=None):
         """ Deactivate one option.  The arguments are:
@@ -334,8 +349,7 @@ class SimulationOptions(object):
         if key in self.ActiveOptions:
             self.InactiveOptions[key] = self.ActiveOptions[key]
             del self.ActiveOptions[key]
-        if msg != None:
-            self.InactiveWarnings[key] = msg
+        self.InactiveWarnings[key] = msg
         
     def __getattr__(self,key):
         if key in self.ActiveOptions:
@@ -355,26 +369,48 @@ class SimulationOptions(object):
         out.append("#|     Input file for OpenMM MD script     |#")
         out.append("#|  Lines beginning with '#' are comments  |#")
         out.append("#===========================================#")
+        TopBar = False
         UserSupplied = []
         for key in self.ActiveOptions:
-            if key in self.UserOptions:
+            if key in self.UserOptions and key not in self.ForcedOptions:
                 UserSupplied.append("%-22s %20s # %s" % (key, str(self.ActiveOptions[key]), self.Documentation[key]))
         if len(UserSupplied) > 0:
-            out.append("")
-            out.append("#===========================================#")
+            if TopBar:
+                out.append("#===========================================#")
+            else:
+                TopBar = True
             out.append("#|          User-supplied options:         |#")
             out.append("#===========================================#")
             out += UserSupplied
+        Forced = []
+        for key in self.ActiveOptions:
+            if key in self.ForcedOptions:
+                Forced.append("%-22s %20s # %s" % (key, str(self.ActiveOptions[key]), self.Documentation[key]))
+                Forced.append("%-22s %20s # Reason : %s" % ("","",self.ForcedWarnings[key]))
+        if len(Forced) > 0:
+            if TopBar:
+                out.append("#===========================================#")
+            else:
+                TopBar = True
+            out.append("#|     Options enforced by the script:     |#")
+            out.append("#===========================================#")
+            out += Forced
         ActiveDefault = []
         for key in self.ActiveOptions:
-            if key not in self.UserOptions:
+            if key not in self.UserOptions and key not in self.ForcedOptions:
                 ActiveDefault.append("%-22s %20s # %s" % (key, str(self.ActiveOptions[key]), self.Documentation[key]))
         if len(ActiveDefault) > 0:
-            out.append("")
-            out.append("#===========================================#")
+            if TopBar:
+                out.append("#===========================================#")
+            else:
+                TopBar = True
             out.append("#|   Active options at default values:     |#")
             out.append("#===========================================#")
             out += ActiveDefault
+        # out.append("")
+        out.append("#===========================================#")
+        out.append("#|           End of Input File             |#")
+        out.append("#===========================================#")
         Deactivated = []
         for key in self.InactiveOptions:
             Deactivated.append("%-22s %20s # %s" % (key, str(self.InactiveOptions[key]), self.Documentation[key]))
@@ -390,15 +426,11 @@ class SimulationOptions(object):
             if key not in self.ActiveOptions and key not in self.InactiveOptions:
                 Unrecognized.append("%-22s %20s" % (key, self.UserOptions[key]))
         if len(Unrecognized) > 0:
-            out.append("")
+            # out.append("")
             out.append("#===========================================#")
             out.append("#|          Unrecognized options:          |#")
             out.append("#===========================================#")
             out += Unrecognized
-        out.append("")
-        out.append("#===========================================#")
-        out.append("#|           End of Input File             |#")
-        out.append("#===========================================#")
         return out
         
     def __init__(self, input_file, pdbfnm):
@@ -407,6 +439,8 @@ class SimulationOptions(object):
         self.Documentation = OrderedDict()
         self.UserOptions = OrderedDict()
         self.ActiveOptions = OrderedDict()
+        self.ForcedOptions = OrderedDict()
+        self.ForcedWarnings = OrderedDict()
         self.InactiveOptions = OrderedDict()
         self.InactiveWarnings = OrderedDict()
         # First build a dictionary of user supplied options.
@@ -439,29 +473,36 @@ class SimulationOptions(object):
         self.set_active('collision_rate',0.1,float,"Collision frequency for Langevin integrator or Andersen thermostat in ps^-1.",
                         depend=(self.integrator == "langevin" or self.temperature != 0.0),
                         msg="We're not running a constant temperature simulation")
-        self.set_active('polarization_direct',False,bool,"Use direct polarization in AMOEBA force field")
-        self.set_active('polar_eps',1e-5,float,"Polarizable dipole convergence parameter in AMOEBA force field.",
-                        depend=(not self.polarization_direct),
-                        msg="Polarization_direct is turned on")
         self.set_active('pressure',0.0,float,"Simulation pressure; set a positive number to activate.",
                         clash=(self.temperature <= 0.0),
                         msg="For constant pressure simulations, the temperature must be finite")
         self.set_active('nbarostat',25,int,"Step interval for MC barostat volume adjustments.",
                         depend=("pressure" in self.ActiveOptions and self.pressure > 0.0), msg = "We're not running a constant pressure simulation")
+        self.set_active('nonbonded_method','PME',str,"Set the method for nonbonded interactions.", allowed=["NoCutoff","CutoffNonPeriodic","CutoffPeriodic","Ewald","PME"])
+        self.nonbonded_method_obj = {"NoCutoff":NoCutoff,"CutoffNonPeriodic":CutoffNonPeriodic,"CutoffPeriodic":CutoffPeriodic,"Ewald":Ewald,"PME":PME}[self.nonbonded_method]
         self.set_active('nonbonded_cutoff',0.9,float,"Nonbonded cutoff distance in nanometers.")
-        self.set_active('vdw_cutoff',0.9,float,"Separate vdW cutoff distance in nanometers for AMOEBA simulation.")
+        self.set_active('dispersion_correction',True,bool,"Isotropic long-range dispersion correction for periodic systems.")
+        self.set_active('ewald_error_tolerance',0.0005,float,"Error tolerance for Ewald and PME methods.  Don't go below 5e-5 for PME unless running in double precision.",
+                        depend=(self.nonbonded_method_obj in [Ewald, PME]), msg="Nonbonded method must be set to Ewald or PME.")
         self.set_active('platform',None,str,"The simulation platform.", allowed=[None, "Reference","CUDA","OpenCL"])
         self.set_active('cuda_precision','single',str,"The precision of the CUDA platform.", allowed=["single","mixed","double"], 
                         depend=(self.platform == "CUDA"), msg="The simulation platform needs to be set to CUDA")
-        self.set_active('device',0,int,"Specify the device (GPU) number.", depend=(self.platform in ["CUDA", "OpenCL"]), 
+        self.set_active('device',None,int,"Specify the device (GPU) number; will default to the fastest available.", depend=(self.platform in ["CUDA", "OpenCL"]), 
                         msg="The simulation platform needs to be set to CUDA or OpenCL")
         self.set_active('initial_report',False,bool,"Perform one Report prior to running any dynamics.")
         self.set_active('constraints',None,str,"Specify constraints.", allowed=[None,"HBonds","AllBonds","HAngles"])
-        if type(self.constraints) == str:
-            self.constraints = {"None":None,"HBonds":HBonds,"HAngles":HAngles,"AllBonds":AllBonds}[self.constraints]
-        self.set_active('rigidwater',False,bool,"Make water molecules rigid.")
+        self.constraint_obj = {None: None, "None":None,"HBonds":HBonds,"HAngles":HAngles,"AllBonds":AllBonds}[self.constraints]
+        self.set_active('rigidwater',False,bool,"Add constraints to make water molecules rigid.")
+        self.set_active('constraint_tolerance',1e-5,float,"Set the constraint error tolerance in the integrator (default value recommended by Peter Eastman).")
         self.set_active('serialize',None,str,"Provide a file name for writing the serialized System object.")
-        self.set_active('pmegrid',None,list,"Set the PME grid for AMOEBA simulations.")
+        self.set_active('vdw_cutoff',0.9,float,"Separate vdW cutoff distance in nanometers for AMOEBA simulation.")
+        self.set_active('polarization_direct',False,bool,"Use direct polarization in AMOEBA force field")
+        self.set_active('polar_eps',1e-5,float,"Polarizable dipole convergence parameter in AMOEBA force field.",
+                        depend=(not self.polarization_direct),
+                        msg="Polarization_direct is turned on")
+        self.set_active('aewald',5.4459052,float,"Set the Ewald alpha parameter for periodic AMOEBA simulations.")
+        self.set_active('pmegrid',None,list,"Set the PME grid for AMOEBA simulations.", depend=(self.nonbonded_method == "PME"),
+                        msg="The nonbonded method must be set to PME.")
         self.set_active('pdb_report_interval',0,int,"Specify a timestep interval for PDB reporter.")
         self.set_active('pdb_report_filename',"output_%s.pdb" % basename,str,"Specify an file name for writing output PDB file.",
                         depend=(self.pdb_report_interval > 0), msg="pdb_report_interval needs to be set to a whole number.")
@@ -536,7 +577,7 @@ class ProgressReport(object):
     
     def describeNextReport(self, simulation):
         steps = self._reportInterval - simulation.currentStep%self._reportInterval
-        return (steps, True, True, True, True)
+        return (steps, False, False, False, True)
 
     def analyze(self, simulation):
         PrintDict = OrderedDict()
@@ -598,7 +639,7 @@ class EnergyReporter(object):
     
     def describeNextReport(self, simulation):
         steps = self._reportInterval - simulation.currentStep%self._reportInterval
-        return (steps, True, True, True, True)
+        return (steps, False, False, False, False)
 
     def report(self, simulation, state):
         self.run_time = float(simulation.currentStep - self._first) * args.timestep * femtosecond
@@ -647,10 +688,23 @@ else:
         logger.info("Detected AMOEBA system!")
         settings += [('constraints', args.constraints), ('rigidWater', args.rigidwater)]
         if pbc:
+            logger.info("Periodic AMOEBA system uses PME regardless of user-supplied options.")
+            args.force_active('nonbonded_method',"PME","PME enforced for periodic AMOEBA system.")
             settings += [('nonbondedMethod', PME), ('nonbondedCutoff', args.nonbonded_cutoff * nanometer), 
-                         ('vdwCutoff', args.vdw_cutoff), ('aEwald', 5.4459052), ('useDispersionCorrection', True)]
+                         ('vdwCutoff', args.vdw_cutoff), ('aEwald', args.aewald), 
+                         ('ewaldErrorTolerance', args.ewald_error_tolerance),
+                         ('useDispersionCorrection', args.dispersion_correction)]
             if args.pmegrid != None:
                 settings.append(('pmeGridDimensions', args.pmegrid))
+        else:
+            args.force_active('nonbonded_method',NoCutoff,"Nonbonded method forced to NoCutoff for nonperiodic AMOEBA system.")
+            args.deactivate('nonbonded_cutoff',"Deactivated because nonbonded method forced to NoCutoff")
+            args.deactivate('aewald',"Deactivated because nonbonded method forced to NoCutoff")
+            args.deactivate('ewald_error_tolerance',"Deactivated because nonbonded method forced to NoCutoff")
+            args.deactivate('vdw_cutoff',"Deactivated because nonbonded method forced to NoCutoff")
+            args.deactivate('dispersion_correction',"Deactivated because nonbonded method forced to NoCutoff")
+            args.deactivate("pmegrid",msg="Deactivated because nonbonded method forced to NoCutoff")
+            settings.append += [('nonbondedMethod', NoCutoff)]
         if args.polarization_direct:
             logger.info("Setting direct polarization")
             settings.append(('polarization', 'direct'))
@@ -660,13 +714,23 @@ else:
     else:
         logger.info("Detected non-AMOEBA system")
         if pbc:
-            settings = [('constraints', args.constraints), ('rigidWater', args.rigidwater), ('nonbondedMethod', PME), 
+            settings = [('constraints', args.constraints), ('rigidWater', args.rigidwater), ('nonbondedMethod', args.nonbonded_method_obj), 
                         ('nonbondedCutoff', args.nonbonded_cutoff * nanometer), ('useDispersionCorrection', True)]
+            if args.nonbonded_method_obj in [Ewald, PME]:
+                settings += [('ewaldErrorTolerance', args.ewald_error_tolerance)]
+            else:
+                args.deactivate('ewald_error_tolerance',"Not using Ewald or PME for periodic nonbonded interactions.")
         else:
-            settings = [('constraints', args.constraints), ('rigidWater', args.rigidwater), ('nonbondedMethod', NoCutoff)]
+            if args.nonbonded_method_obj in [CutoffPeriodic, Ewald, PME]:
+                raise Exception('Nonbonded methods CutoffPeriodic, Ewald, or PME cannot be used for nonperiodic systems; use NoCutoff or CutoffNonPeriodic instead.')
+            if args.nonbonded_method_obj == NoCutoff:
+                args.deactivate('nonbonded_cutoff',"Not using cutoffs for nonbonded interactions.")
+            settings = [('constraints', args.constraints), ('rigidWater', args.rigidwater), ('nonbondedMethod', args.nonbonded_method_obj)]
+            args.deactivate('ewald_error_tolerance',"Nonperiodic system does not use Ewald or PME.")
+            args.deactivate('dispersion_correction',"Deactivated for a nonperiodic system.")
         args.deactivate("polarization_direct",msg="Not simulating an AMOEBA system")
         args.deactivate("polar_eps",msg="Not simulating an AMOEBA system")
-        args.deactivate("vdw_cutoff",msg="Not simulating an AMOEBA system")
+        args.deactivate("aewald",msg="Not simulating an AMOEBA system")
         args.deactivate("pmegrid",msg="Not simulating an AMOEBA system")
         args.deactivate("tinkerpath",msg="Not simulating an AMOEBA system")
     logger.info("Now setting up the System")
@@ -703,6 +767,10 @@ else:
         system.addForce(barostat)
     else:
         raise Exception('Pressure was specified but the system is nonperiodic! Exiting...')
+if str(args.constraints) == "None" and args.rigidwater == False:
+    args.deactivate('constraint_tolerance',"There are no constraints in this system")
+else:
+    integrator.setConstraintTolerance(args.constraint_tolerance)
 
 #==================================#
 #|      Create the platform       |#
@@ -710,7 +778,7 @@ else:
 if args.platform != None:
     logger.info("Setting Platform to %s" % str(args.platform))
     platform = Platform.getPlatformByName(args.platform)
-    if 'device' in args.ActiveOptions:
+    if 'device' in args.ActiveOptions and args.device != None:
         # The device may be set using an environment variable or the input file.
         if os.environ.has_key('CUDA_DEVICE'):
             device = os.environ.get('CUDA_DEVICE',str(args.device))
@@ -723,8 +791,10 @@ if args.platform != None:
         platform.setPropertyDefaultValue("CudaDeviceIndex", device)
         platform.setPropertyDefaultValue("OpenCLDeviceIndex", device)
         platform.setPropertyDefaultValue("CudaPrecision", args.cuda_precision)
+    else:
+        logger.info("Using the default (fastest) device")
 else:
-    print "Using the default Platform"
+    logger.info("Using the default Platform")
 
 #==================================#
 #|  Create the simulation object  |#
@@ -834,6 +904,7 @@ simulation.step(args.production)
 #=============================================#
 #| Run analysis and save restart information |#
 #=============================================#
+logger.info('Getting statistics for the production run.')
 simulation.reporters[0].analyze(simulation)
 final_state = simulation.context.getState(getEnergy=True,getPositions=True,getVelocities=True,getForces=True)
 Xfin = final_state.getPositions() / nanometer
