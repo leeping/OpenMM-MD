@@ -704,7 +704,7 @@ else:
             args.deactivate('vdw_cutoff',"Deactivated because nonbonded method forced to NoCutoff")
             args.deactivate('dispersion_correction',"Deactivated because nonbonded method forced to NoCutoff")
             args.deactivate("pmegrid",msg="Deactivated because nonbonded method forced to NoCutoff")
-            settings.append += [('nonbondedMethod', NoCutoff)]
+            settings.append(('nonbondedMethod', NoCutoff))
         if args.polarization_direct:
             logger.info("Setting direct polarization")
             settings.append(('polarization', 'direct'))
