@@ -484,7 +484,7 @@ class SimulationOptions(object):
         self.set_active('dispersion_correction',True,bool,"Isotropic long-range dispersion correction for periodic systems.")
         self.set_active('ewald_error_tolerance',0.0005,float,"Error tolerance for Ewald and PME methods.  Don't go below 5e-5 for PME unless running in double precision.",
                         depend=(self.nonbonded_method_obj in [Ewald, PME]), msg="Nonbonded method must be set to Ewald or PME.")
-        self.set_active('platform',None,str,"The simulation platform.", allowed=[None, "Reference","CUDA","OpenCL"])
+        self.set_active('platform',"Reference",str,"The simulation platform.", allowed=["Reference","CUDA","OpenCL"])
         self.set_active('cuda_precision','single',str,"The precision of the CUDA platform.", allowed=["single","mixed","double"], 
                         depend=(self.platform == "CUDA"), msg="The simulation platform needs to be set to CUDA")
         self.set_active('device',None,int,"Specify the device (GPU) number; will default to the fastest available.", depend=(self.platform in ["CUDA", "OpenCL"]), 
@@ -775,26 +775,26 @@ else:
 #==================================#
 #|      Create the platform       |#
 #==================================#
-if args.platform != None:
-    logger.info("Setting Platform to %s" % str(args.platform))
-    platform = Platform.getPlatformByName(args.platform)
-    if 'device' in args.ActiveOptions and args.device != None:
-        # The device may be set using an environment variable or the input file.
-        if os.environ.has_key('CUDA_DEVICE'):
-            device = os.environ.get('CUDA_DEVICE',str(args.device))
-        elif os.environ.has_key('CUDA_DEVICE_INDEX'):
-            device = os.environ.get('CUDA_DEVICE_INDEX',str(args.device))
-        else:
-            device = str(args.device)
-        logger.info("Setting Device to %s" % str(device))
-        platform.setPropertyDefaultValue("CudaDevice", device)
-        platform.setPropertyDefaultValue("CudaDeviceIndex", device)
-        platform.setPropertyDefaultValue("OpenCLDeviceIndex", device)
-        platform.setPropertyDefaultValue("CudaPrecision", args.cuda_precision)
+# if args.platform != None:
+logger.info("Setting Platform to %s" % str(args.platform))
+platform = Platform.getPlatformByName(args.platform)
+if 'device' in args.ActiveOptions and args.device != None:
+    # The device may be set using an environment variable or the input file.
+    if os.environ.has_key('CUDA_DEVICE'):
+        device = os.environ.get('CUDA_DEVICE',str(args.device))
+    elif os.environ.has_key('CUDA_DEVICE_INDEX'):
+        device = os.environ.get('CUDA_DEVICE_INDEX',str(args.device))
     else:
-        logger.info("Using the default (fastest) device")
+        device = str(args.device)
+    logger.info("Setting Device to %s" % str(device))
+    platform.setPropertyDefaultValue("CudaDevice", device)
+    platform.setPropertyDefaultValue("CudaDeviceIndex", device)
+    platform.setPropertyDefaultValue("OpenCLDeviceIndex", device)
 else:
-    logger.info("Using the default Platform")
+    logger.info("Using the default (fastest) device")
+platform.setPropertyDefaultValue("CudaPrecision", args.cuda_precision)
+# else:
+#     logger.info("Using the default Platform")
 
 #==================================#
 #|  Create the simulation object  |#
@@ -898,8 +898,12 @@ if args.initial_report:
     for Reporter in simulation.reporters:
         Reporter.report(simulation,simulation.context.getState(getPositions=True,getVelocities=True,getForces=True,getEnergy=True))
 
+t1 = time.time()
+
 # This command actually does all of the computation.
 simulation.step(args.production)
+
+prodtime = time.time() - t1
 
 #=============================================#
 #| Run analysis and save restart information |#
@@ -913,5 +917,6 @@ Bfin = final_state.getPeriodicBoxVectors() / nanometer
 bak(args.restart_filename)
 logger.info("Restart information will be written to %s" % args.restart_filename)
 with open(os.path.join(args.restart_filename),'w') as f: pickle.dump((Xfin, Vfin, Bfin),f)
-print "Wall time: % .4f seconds" % (time.time() - t0)
-print "Simulation speed: % .4f ns/day" % (86400*(first+args.production)*args.timestep*femtosecond/nanosecond/(time.time()-t0))
+print "Total wall time: % .4f seconds" % (time.time() - t0)
+print "Production wall time: % .4f seconds" % (prodtime)
+print "Simulation speed: % .6f ns/day" % (86400*(first+args.production)*args.timestep*femtosecond/nanosecond/(prodtime))
