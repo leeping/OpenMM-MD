@@ -484,7 +484,7 @@ class SimulationOptions(object):
         self.set_active('dispersion_correction',True,bool,"Isotropic long-range dispersion correction for periodic systems.")
         self.set_active('ewald_error_tolerance',0.0005,float,"Error tolerance for Ewald and PME methods.  Don't go below 5e-5 for PME unless running in double precision.",
                         depend=(self.nonbonded_method_obj in [Ewald, PME]), msg="Nonbonded method must be set to Ewald or PME.")
-        self.set_active('platform',"Reference",str,"The simulation platform.", allowed=["Reference","CUDA","OpenCL"])
+        self.set_active('platform',"CUDA",str,"The simulation platform.", allowed=["Reference","CUDA","OpenCL"])
         self.set_active('cuda_precision','single',str,"The precision of the CUDA platform.", allowed=["single","mixed","double"], 
                         depend=(self.platform == "CUDA"), msg="The simulation platform needs to be set to CUDA")
         self.set_active('device',None,int,"Specify the device (GPU) number; will default to the fastest available.", depend=(self.platform in ["CUDA", "OpenCL"]), 
@@ -668,23 +668,64 @@ else:
 #|    Set up the System object.   |#
 #==================================#
 Deserialize = False
-if len(xmlfnm[0]) == 1 and os.path.exists(xmlfnm[0]):
+if len(xmlfnm) == 1 and os.path.exists(xmlfnm[0]):
     # Detect whether the input argument is an XML file or not.
     xmlroot = ET.parse(xmlfnm[0]).getroot()
     if 'type' in xmlroot.attrib and xmlroot.attrib['type'].lower() == 'system':
         Deserialize = True
-        logger.info("Loading all simulation settings from System XML file ; user-provided settings are ignored!")
+        logger.info("Loading simulation settings from System XML file")
+    elif xmlroot.tag.lower()  == 'forcefield':
+        pass
     else:
         raise Exception('Unrecognized XML File (not OpenMM Force Field or System XML File!)')
 
 if Deserialize:
-    # This line would deserialize a system XML file.
+    #===================================================================#
+    #| The system XML file contains all of the settings related to the |#
+    #| molecular interactions, and it can also contain thermostats and |#
+    #| barostats in the form of Forces.  It is possible to override    |#
+    #| some of the settings in the system XML file, and we do so here  |#
+    #| for certain settings (for the sake of convenience.)             |#
+    #===================================================================#
+    # This line deserializes the system XML file.
     system = XmlSerializer.deserializeSystem(open(xmlfnm[0]).read())
+    forces = system.getForces()
+    if any(['Amoeba' in f.__class__.__name__ for f in forces]):
+        logger.info("Detected AMOEBA system!")
+        for f in forces:
+            if f.__class__.__name__ == "AmoebaMultipoleForce":
+                if 'polarization_direct' in args.UserOptions and 'polarization_direct' in args.ActiveOptions:
+                    logger.info("Setting direct polarization")
+                    f.setPolarizationType(1)
+                    args.deactivate('polar_eps', "Not relevant for direct polarization")
+                elif 'polar_eps' in args.UserOptions and 'polar_eps' in args.ActiveOptions:
+                    logger.info("Setting mutual polarization with tolerance % .2e" % args.polar_eps)
+                    f.setPolarizationType(0)
+                    f.setMutualInducedTargetEpsilon(args.polar_eps)
+                else: 
+                    args.deactivate('polarization_direct', "Loaded from System XML file because not explicitly specified")
+                    args.deactivate('polar_eps', "Loaded from System XML file because not explicitly specified")
+        args.deactivate('vdw_cutoff', "Specified by the System XML file")
+        args.deactivate('aewald', "Specified by the System XML file")
+        args.deactivate('pmegrid', "Specified by the System XML file")
+    else:
+        args.deactivate("vdw_cutoff",msg="Not simulating an AMOEBA system")
+        args.deactivate("polarization_direct",msg="Not simulating an AMOEBA system")
+        args.deactivate("polar_eps",msg="Not simulating an AMOEBA system")
+        args.deactivate("aewald",msg="Not simulating an AMOEBA system")
+        args.deactivate("pmegrid",msg="Not simulating an AMOEBA system")
+        args.deactivate("tinkerpath",msg="Not simulating an AMOEBA system")
+    args.deactivate('nonbonded_method', "Specified by the System XML file")
+    args.deactivate('nonbonded_cutoff', "Specified by the System XML file")
+    args.deactivate('constraints', "Specified by the System XML file")
+    args.deactivate('rigidwater', "Specified by the System XML file")
+    args.deactivate('ewald_error_tolerance', "Specified by the System XML file")
+    args.deactivate('dispersion_correction', "Specified by the System XML file")
 else:
     settings = []
     # This creates a system from a force field XML file.
     forcefield = ForceField(*xmlfnm)
-    if any(['Amoeba' in i.__class__.__name__ for i in forcefield._forces]):
+    if any(['Amoeba' in f.__class__.__name__ for f in forcefield._forces]):
         logger.info("Detected AMOEBA system!")
         settings += [('constraints', args.constraints), ('rigidWater', args.rigidwater)]
         if pbc:
@@ -697,7 +738,7 @@ else:
             if args.pmegrid != None:
                 settings.append(('pmeGridDimensions', args.pmegrid))
         else:
-            args.force_active('nonbonded_method',NoCutoff,"Nonbonded method forced to NoCutoff for nonperiodic AMOEBA system.")
+            args.force_active('nonbonded_method',"NoCutoff","Nonbonded method forced to NoCutoff for nonperiodic AMOEBA system.")
             args.deactivate('nonbonded_cutoff',"Deactivated because nonbonded method forced to NoCutoff")
             args.deactivate('aewald',"Deactivated because nonbonded method forced to NoCutoff")
             args.deactivate('ewald_error_tolerance',"Deactivated because nonbonded method forced to NoCutoff")
@@ -707,9 +748,10 @@ else:
             settings.append(('nonbondedMethod', NoCutoff))
         if args.polarization_direct:
             logger.info("Setting direct polarization")
+            args.deactivate('polar_eps', "Not relevant for direct polarization")
             settings.append(('polarization', 'direct'))
         else:
-            logger.info("Setting mutual polarization")
+            logger.info("Setting mutual polarization with tolerance % .2e" % args.polar_eps)
             settings.append(('mutualInducedTargetEpsilon', args.polar_eps))
     else:
         logger.info("Detected non-AMOEBA system")
@@ -728,6 +770,7 @@ else:
             settings = [('constraints', args.constraints), ('rigidWater', args.rigidwater), ('nonbondedMethod', args.nonbonded_method_obj)]
             args.deactivate('ewald_error_tolerance',"Nonperiodic system does not use Ewald or PME.")
             args.deactivate('dispersion_correction',"Deactivated for a nonperiodic system.")
+        args.deactivate("vdw_cutoff",msg="Not simulating an AMOEBA system")
         args.deactivate("polarization_direct",msg="Not simulating an AMOEBA system")
         args.deactivate("polar_eps",msg="Not simulating an AMOEBA system")
         args.deactivate("aewald",msg="Not simulating an AMOEBA system")
@@ -744,30 +787,67 @@ logger.info("Total system mass     : %.2f amu" % (compute_mass(system)/amu))
 #====================================#
 #| Temperature and pressure control |#
 #====================================#
-if args.temperature <= 0.0:
-    logger.info("This is a constant energy run using the Verlet integrator.")
+
+sysxml_thermo = False
+sysxml_baro = False
+if Deserialize:
+    for f in forces:
+        if f.__class__.__name__ == "MonteCarloBarostat":
+            sysxml_baro = True
+            args.deactivate("pressure", msg="Specified by the System XML file")
+            args.deactivate("nbarostat", msg="Specified by the System XML file")
+            logger.info("The system XML file contains a Monte Carlo barostat at %.2f atm pressure" % (f.getDefaultPressure()/atmosphere))
+            if not pbc:
+                raise Exception('System contains a Barostat but the topology contains no periodic box! Exiting...')
+        if f.__class__.__name__ == "AndersenThermostat":
+            sysxml_thermo = True
+            args.deactivate("temperature", msg="Specified by the System XML file")
+            args.deactivate("collision_rate", msg="Specified by the System XML file")
+            logger.info("The system XML file contains an Andersen thermostat at %.2f K temperature" % (f.getDefaultTemperature()/kelvin))
+            if args.integrator == "langevin":
+                raise Exception('Cannot create a Langevin integrator with existing temperature control! Exiting...')
+
+def add_barostat():
+    if sysxml_baro:
+        logger.info("Ignoring user-specified pressure control and going with the existing barostat.")
+    else:
+        if args.pressure <= 0.0:
+            logger.info("This is a constant volume (NVT) run")
+        elif pbc:
+            logger.info("This is a constant pressure (NPT) run at %.2f atm pressure" % args.pressure)
+            logger.info("Adding Monte Carlo barostat with volume adjustment interval %i" % args.nbarostat)
+            barostat = MonteCarloBarostat(args.pressure * atmospheres, args.temperature * kelvin, args.nbarostat)
+            system.addForce(barostat)
+        else:
+            raise Exception('Pressure was specified but the topology contains no periodic box! Exiting...')
+
+if sysxml_thermo:
+    logger.info("Ignoring user-specified temperature control.")
+    logger.info("Creating a Verlet integrator with %.2f fs timestep." % args.timestep)
     integrator = VerletIntegrator(args.timestep * femtosecond)
+    add_barostat()
 else:
-    logger.info("This is a constant temperature run at %.2f K" % args.temperature)
-    logger.info("The stochastic thermostat collision frequency is %.2f ps^-1" % args.collision_rate)
-    if args.integrator == "langevin":
-        logger.info("Creating a Langevin integrator")
-        integrator = LangevinIntegrator(args.temperature * kelvin, args.collision_rate / picosecond, args.timestep * femtosecond)
-    else:
-        logger.info("Using Verlet integrator with Andersen thermostat")
+    if args.temperature <= 0.0:
+        logger.info("This is a constant energy, constant volume (NVE) run.")
+        logger.info("Creating a Verlet integrator with %.2f fs timestep." % args.timestep)
         integrator = VerletIntegrator(args.timestep * femtosecond)
-        thermostat = AndersenThermostat(args.temperature * kelvin, args.collision_rate / picosecond)
-        system.addForce(thermostat)
-    if args.pressure <= 0.0:
-        logger.info("This is a constant volume run")
-    elif pbc:
-        logger.info("This is a constant pressure run at %.2f atm pressure" % args.pressure)
-        logger.info("Adding Monte Carlo barostat with volume adjustment interval %i" % args.nbarostat)
-        barostat = MonteCarloBarostat(args.pressure * atmospheres, args.temperature * kelvin, args.nbarostat)
-        system.addForce(barostat)
     else:
-        raise Exception('Pressure was specified but the system is nonperiodic! Exiting...')
-if str(args.constraints) == "None" and args.rigidwater == False:
+        logger.info("This is a constant temperature run at %.2f K" % args.temperature)
+        logger.info("The stochastic thermostat collision frequency is %.2f ps^-1" % args.collision_rate)
+        if args.integrator == "langevin":
+            logger.info("Creating a Langevin integrator with %.2f fs timestep." % args.timestep)
+            integrator = LangevinIntegrator(args.temperature * kelvin, args.collision_rate / picosecond, args.timestep * femtosecond)
+        else:
+            logger.info("Creating a Verlet integrator with %.2f fs timestep and adding Andersen thermostat." % args.timestep)
+            integrator = VerletIntegrator(args.timestep * femtosecond)
+            thermostat = AndersenThermostat(args.temperature * kelvin, args.collision_rate / picosecond)
+            system.addForce(thermostat)
+        if sysxml_baro:
+            logger.info("Ignoring user-specified pressure control and going with the existing barostat.")
+        else:
+            add_barostat()
+
+if not hasattr(args,'constraints') or (str(args.constraints) == "None" and args.rigidwater == False):
     args.deactivate('constraint_tolerance',"There are no constraints in this system")
 else:
     integrator.setConstraintTolerance(args.constraint_tolerance)
@@ -777,7 +857,13 @@ else:
 #==================================#
 # if args.platform != None:
 logger.info("Setting Platform to %s" % str(args.platform))
-platform = Platform.getPlatformByName(args.platform)
+try:
+    platform = Platform.getPlatformByName(args.platform)
+except:
+    logger.info("Warning: %s platform not found, going to Reference platform \x1b[91m(slow)\x1b[0m" % args.platform)
+    args.force_active('platform',"Reference","The %s platform was not found." % args.platform)
+    platform = Platform.getPlatformByName("Reference")
+
 if 'device' in args.ActiveOptions and args.device != None:
     # The device may be set using an environment variable or the input file.
     if os.environ.has_key('CUDA_DEVICE'):
@@ -792,7 +878,8 @@ if 'device' in args.ActiveOptions and args.device != None:
     platform.setPropertyDefaultValue("OpenCLDeviceIndex", device)
 else:
     logger.info("Using the default (fastest) device")
-platform.setPropertyDefaultValue("CudaPrecision", args.cuda_precision)
+if "CudaPrecision" in platform.getPropertyNames():
+    platform.setPropertyDefaultValue("CudaPrecision", args.cuda_precision)
 # else:
 #     logger.info("Using the default Platform")
 
