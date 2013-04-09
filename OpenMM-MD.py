@@ -461,7 +461,9 @@ class SimulationOptions(object):
         self.set_active('minimize',False,bool,"Specify whether to minimize the energy before running dynamics.")
         self.set_active('timestep',1.0,float,"Time step in femtoseconds.")
         self.set_active('restart_filename','restart.p',str,"Restart information will be read from / written to this file (will be backed up).")
-        self.set_active('restart',True,bool,"Restart simulation from the restart file.",
+        self.set_active('write_restart',True,bool,"Write restart information to the restart file.",
+                        depend=(self.restart_filename != None), msg="Writing the restart file has been disabled.")
+        self.set_active('read_restart',True,bool,"Restart simulation from the restart file.",
                         depend=(os.path.exists(self.restart_filename)), msg="Cannot restart; file specified by restart_filename does not exist.")
         self.set_active('equilibrate',0,int,"Number of steps reserved for equilibration.")
         self.set_active('production',1000,int,"Number of steps in production run.")
@@ -911,7 +913,7 @@ for line in args.record():
 #===============================================================#
 #| Run dynamics for equilibration, or load restart information |#
 #===============================================================#
-if os.path.exists(args.restart_filename) and args.restart:
+if os.path.exists(args.restart_filename) and args.read_restart:
     print "Restarting simulation from the restart file."
     # Load information from the restart file.
     r_positions, r_velocities, r_boxes = pickle.load(open(args.restart_filename))
@@ -997,6 +999,7 @@ prodtime = time.time() - t1
 #=============================================#
 logger.info('Getting statistics for the production run.')
 simulation.reporters[0].analyze(simulation)
+if args.write_restart:
 final_state = simulation.context.getState(getEnergy=True,getPositions=True,getVelocities=True,getForces=True)
 Xfin = final_state.getPositions() / nanometer
 Vfin = final_state.getVelocities() / nanometer * picosecond
