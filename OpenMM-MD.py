@@ -535,10 +535,11 @@ def add_argument(group, *args, **kwargs):
     group.add_argument(*args, **kwargs)
 
 print
-print " #=========================================#"
-print " #|   OpenMM general purpose simulation   |#"
-print " #| Use the -h argument for detailed help |#"
-print " #=========================================#"
+print " #===========================================#"
+print " #|    OpenMM general purpose simulation    |#"
+print " #| (Hosted @ github.com/leeping/OpenMM-MD) |#"
+print " #|  Use the -h argument for detailed help  |#"
+print " #===========================================#"
 print
 
 parser = argparse.ArgumentParser()
