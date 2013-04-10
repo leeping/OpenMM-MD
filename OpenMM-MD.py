@@ -734,11 +734,14 @@ else:
             logger.info("Periodic AMOEBA system uses PME regardless of user-supplied options.")
             args.force_active('nonbonded_method',"PME","PME enforced for periodic AMOEBA system.")
             settings += [('nonbondedMethod', PME), ('nonbondedCutoff', args.nonbonded_cutoff * nanometer), 
-                         ('vdwCutoff', args.vdw_cutoff), ('aEwald', args.aewald), 
-                         ('ewaldErrorTolerance', args.ewald_error_tolerance),
-                         ('useDispersionCorrection', args.dispersion_correction)]
+                         ('vdwCutoff', args.vdw_cutoff), ('useDispersionCorrection', args.dispersion_correction)]
             if args.pmegrid != None:
                 settings.append(('pmeGridDimensions', args.pmegrid))
+                args.deactivate('aewald',"PME grid was explicitly specified")
+                args.deactivate('ewald_error_tolerance',"PME grid was explicitly specified")
+            else:
+                settings += [('aEwald', args.aewald)]
+                args.deactivate('ewald_error_tolerance',"Redundant with aewald parameter")
         else:
             args.force_active('nonbonded_method',"NoCutoff","Nonbonded method forced to NoCutoff for nonperiodic AMOEBA system.")
             args.deactivate('nonbonded_cutoff',"Deactivated because nonbonded method forced to NoCutoff")
@@ -785,6 +788,10 @@ logger.info("--== System Information ==--")
 logger.info("Number of particles   : %i" % system.getNumParticles())
 logger.info("Number of constraints : %i" % system.getNumConstraints())
 logger.info("Total system mass     : %.2f amu" % (compute_mass(system)/amu))
+for f in system.getForces():
+    if f.__class__.__name__ == 'AmoebaMultipoleForce':
+        logger.info("AMOEBA PME order      : %i" % f.getPmeBSplineOrder())
+        logger.info("AMOEBA PME grid       : %s" % str(f.getPmeGridDimensions()))
 
 #====================================#
 #| Temperature and pressure control |#
@@ -1000,13 +1007,13 @@ prodtime = time.time() - t1
 logger.info('Getting statistics for the production run.')
 simulation.reporters[0].analyze(simulation)
 if args.write_restart:
-final_state = simulation.context.getState(getEnergy=True,getPositions=True,getVelocities=True,getForces=True)
-Xfin = final_state.getPositions() / nanometer
-Vfin = final_state.getVelocities() / nanometer * picosecond
-Bfin = final_state.getPeriodicBoxVectors() / nanometer
-bak(args.restart_filename)
-logger.info("Restart information will be written to %s" % args.restart_filename)
-with open(os.path.join(args.restart_filename),'w') as f: pickle.dump((Xfin, Vfin, Bfin),f)
+    final_state = simulation.context.getState(getEnergy=True,getPositions=True,getVelocities=True,getForces=True)
+    Xfin = final_state.getPositions() / nanometer
+    Vfin = final_state.getVelocities() / nanometer * picosecond
+    Bfin = final_state.getPeriodicBoxVectors() / nanometer
+    bak(args.restart_filename)
+    logger.info("Restart information will be written to %s" % args.restart_filename)
+    with open(os.path.join(args.restart_filename),'w') as f: pickle.dump((Xfin, Vfin, Bfin),f)
 print "Total wall time: % .4f seconds" % (time.time() - t0)
 print "Production wall time: % .4f seconds" % (prodtime)
-print "Simulation speed: % .6f ns/day" % (86400*(first+args.production)*args.timestep*femtosecond/nanosecond/(prodtime))
+print "Simulation speed: % .6f ns/day" % (86400*args.production*args.timestep*femtosecond/nanosecond/(prodtime))
