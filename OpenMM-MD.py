@@ -323,7 +323,7 @@ class SimulationOptions(object):
             self.InactiveOptions[key] = val
             self.InactiveWarnings[key] = msg
 
-    def force_active(self,key,val,msg=None):
+    def force_active(self,key,val=None,msg=None):
         """ Force an option to be active and set it to the provided value,
         regardless of the user input.  There are no safeguards, so use carefully.
         
@@ -331,16 +331,23 @@ class SimulationOptions(object):
         val     : The value that the option is being set to.
         msg     : A warning that is printed out if the option is not activated.
         """
+        if msg == None:
+            msg == "Option forced to active for no given reason."
         if key not in self.ActiveOptions:
+            if val == None:
+                val = self.InactiveOptions[key]
             del self.InactiveOptions[key]
             self.ActiveOptions[key] = val
             self.ForcedOptions[key] = val
             self.ForcedWarnings[key] = msg
-        elif self.ActiveOptions[key] != val:
+        elif val != None and self.ActiveOptions[key] != val:
             self.ActiveOptions[key] = val
             self.ForcedOptions[key] = val
             self.ForcedWarnings[key] = msg
-
+        elif val == None:
+            self.ForcedOptions[key] = self.ActiveOptions[key]
+            self.ForcedWarnings[key] = msg + " (Warning: Forced active but it was already active.)"
+                
     def deactivate(self,key,msg=None):
         """ Deactivate one option.  The arguments are:
         key     : The name of the option.
@@ -354,6 +361,8 @@ class SimulationOptions(object):
     def __getattr__(self,key):
         if key in self.ActiveOptions:
             return self.ActiveOptions[key]
+        elif key in self.InactiveOptions:
+            return None
         else:
             return getattr(super(SimulationOptions,self),key)
 
@@ -457,7 +466,7 @@ class SimulationOptions(object):
                         val = str(line.replace(s[0],'',1).strip())
                     self.UserOptions[key] = val
         # Now go through the logic of determining which options are activated.
-        self.set_active('integrator','verlet',str,"Molecular dynamics integrator",allowed=["verlet","langevin"])
+        self.set_active('integrator','verlet',str,"Molecular dynamics integrator",allowed=["verlet","langevin","velocity-verlet"])
         self.set_active('minimize',False,bool,"Specify whether to minimize the energy before running dynamics.")
         self.set_active('timestep',1.0,float,"Time step in femtoseconds.")
         self.set_active('restart_filename','restart.p',str,"Restart information will be read from / written to this file (will be backed up).")
@@ -478,13 +487,17 @@ class SimulationOptions(object):
         self.set_active('pressure',0.0,float,"Simulation pressure; set a positive number to activate.",
                         clash=(self.temperature <= 0.0),
                         msg="For constant pressure simulations, the temperature must be finite")
+        self.set_active('anisotropic',False,bool,"Set to True for anisotropic box scaling in NPT simulations",
+                        depend=("pressure" in self.ActiveOptions and self.pressure > 0.0), msg = "We're not running a constant pressure simulation")
         self.set_active('nbarostat',25,int,"Step interval for MC barostat volume adjustments.",
                         depend=("pressure" in self.ActiveOptions and self.pressure > 0.0), msg = "We're not running a constant pressure simulation")
         self.set_active('nonbonded_method','PME',str,"Set the method for nonbonded interactions.", allowed=["NoCutoff","CutoffNonPeriodic","CutoffPeriodic","Ewald","PME"])
         self.nonbonded_method_obj = {"NoCutoff":NoCutoff,"CutoffNonPeriodic":CutoffNonPeriodic,"CutoffPeriodic":CutoffPeriodic,"Ewald":Ewald,"PME":PME}[self.nonbonded_method]
         self.set_active('nonbonded_cutoff',0.9,float,"Nonbonded cutoff distance in nanometers.")
+        self.set_active('vdw_switch',True,bool,"Use a multiplicative switching function to ensure twice-differentiable vdW energies near the cutoff distance.")
+        self.set_active('switch_distance',0.8,float,"Set the distance where the switching function starts; must be less than the nonbonded cutoff.")
         self.set_active('dispersion_correction',True,bool,"Isotropic long-range dispersion correction for periodic systems.")
-        self.set_active('ewald_error_tolerance',0.0005,float,"Error tolerance for Ewald and PME methods.  Don't go below 5e-5 for PME unless running in double precision.",
+        self.set_active('ewald_error_tolerance',0.00005,float,"Error tolerance for Ewald and PME methods.  Don't go below 5e-5 for PME unless running in double precision.",
                         depend=(self.nonbonded_method_obj in [Ewald, PME]), msg="Nonbonded method must be set to Ewald or PME.")
         self.set_active('platform',"CUDA",str,"The simulation platform.", allowed=["Reference","CUDA","OpenCL"])
         self.set_active('cuda_precision','single',str,"The precision of the CUDA platform.", allowed=["single","mixed","double"], 
@@ -566,6 +579,8 @@ class ProgressReport(object):
             self._out = file
         self._interval = args.report_interval * args.timestep * femtosecond
         self._units = OrderedDict()
+        self._units['energy'] = kilojoule_per_mole
+        self._units['kinetic'] = kilojoule_per_mole
         self._units['potential'] = kilojoule_per_mole
         self._units['temperature'] = kelvin
         if simulation.topology.getUnitCellDimensions() != None :
@@ -587,13 +602,23 @@ class ProgressReport(object):
         for datatype in self._units:
             data   = np.array(self._data[datatype])
             mean   = np.mean(data)
-            stdev  = np.std(data)
-            g      = statisticalInefficiency(data)
+            dmean  = data - mean
+            stdev  = np.std(dmean)
+            g      = statisticalInefficiency(dmean)
             stderr = np.sqrt(g) * stdev / np.sqrt(len(data))
             acorr  = 0.5*(g-1)*self._interval/picosecond
-            PrintDict[datatype+" (%s)" % self._units[datatype]] = "%12.3f %12.3f %12.3f %12.3f" % (mean, stdev, stderr, acorr)
-        printcool_dictionary(PrintDict,"Summary statistics - total simulation time %.3f ps:\n%-26s %12s %12s %12s %12s" % (self.run_time/picosecond, "Quantity", "Mean", 
-                                                                                                                           "Stdev", "Stderr", "Acorr(ps)"),keywidth=30)
+            # Perform a linear fit.
+            x      = np.linspace(0, 1, len(data))
+            z      = np.polyfit(x, data, 1)
+            p      = np.polyval(z, x)
+            # Compute the drift.
+            drift  = p[-1] - p[0]
+            # Compute the driftless standard deviation.
+            stdev1 = np.std(data-p)
+            PrintDict[datatype+" (%s)" % self._units[datatype]] = "%13.5f %13.5e %13.5f %13.5f %13.5f %13.5e" % (mean, stdev, stderr, acorr, drift, stdev1)
+        printcool_dictionary(PrintDict,"Summary statistics - total simulation time %.3f ps:\n%-26s %13s %13s %13s %13s %13s %13s\n%-26s %13s %13s %13s %13s %13s %13s" % (self.run_time/picosecond, 
+                                                                                                                                                                          "", "", "", "", "", "", "Stdev", 
+                                                                                                                                                                          "Quantity", "Mean", "Stdev", "Stderr", "Acorr(ps)", "Drift", "(NoDrift)"),keywidth=30)
     def report(self, simulation, state):
         # Compute total mass in grams.
         mass = compute_mass(simulation.system).in_units_of(gram / mole) /  AVOGADRO_CONSTANT_NA
@@ -603,23 +628,29 @@ class ProgressReport(object):
         potential = state.getPotentialEnergy() / self._units['potential']
         kB = BOLTZMANN_CONSTANT_kB * AVOGADRO_CONSTANT_NA
         temperature = 2.0 * kinetic / kB / ndof / self._units['temperature']
+        kinetic /= self._units['kinetic']
+        energy = kinetic + potential
         pct = 100 * float(simulation.currentStep - self._first) / self._total
         self.run_time = float(simulation.currentStep - self._first) * args.timestep * femtosecond
-        timeleft = (time.time()-self.t0)*(100.0 - pct)/pct
-
+        if pct != 0.0:
+            timeleft = (time.time()-self.t0)*(100.0 - pct)/pct
+        else:
+            timeleft = 0.0
         if simulation.topology.getUnitCellDimensions() != None :
             box_vectors = state.getPeriodicBoxVectors()
             volume = compute_volume(box_vectors) / self._units['volume']
             density = (mass / compute_volume(box_vectors)) / self._units['density']
             if self._initial:
-                logger.info("%8s %12s %9s %9s %13s %10s %13s" % ('Progress', 'E.T.A', 'Time(ps)', 'Temp(K)', 'Pot(kJ)', 'Vol(nm3)', 'Rho(kg/m3)'))
-            logger.info("%7.3f%% %12s %9.3f %9.3f % 13.3f %10.4f %13.4f" % (pct, GetTime(timeleft), self.run_time / picoseconds, temperature, potential, volume, density))
+                logger.info("%8s %12s %13s %13s %13s %13s %13s %13s %13s" % ('Progress', 'E.T.A', 'Time(ps)', 'Temp(K)', 'Kin(kJ)', 'Pot(kJ)', 'Ene(kJ)', 'Vol(nm3)', 'Rho(kg/m3)'))
+            logger.info("%7.3f%% %12s %13.5f %13.5f %13.5f %13.5f %13.5f %13.5f %13.5f" % (pct, GetTime(timeleft), self.run_time / picoseconds, temperature, kinetic, potential, energy, volume, density))
             self._data['volume'].append(volume)
             self._data['density'].append(density)
         else:
             if self._initial:
-                logger.info("%8s %12s %9s %9s %9s %13s" % ('Progress', 'E.T.A', 'Time(ps)', 'Temp(K)', 'Pot(kJ)'))
-            logger.info("%7.3f%% %12s %8is %9.3f %9.3f % 13.3f" % (pct, GetTime(timeleft), self.run_time / picoseconds, temperature, potential))
+                logger.info("%8s %12s %13s %13s %13s %13s %13s" % ('Progress', 'E.T.A', 'Time(ps)', 'Temp(K)', 'Kin(kJ)', 'Pot(kJ)', 'Ene(kJ)'))
+            logger.info("%7.3f%% %12s %13.5f %13.5f %13.5f %13.5f %13.5f" % (pct, GetTime(timeleft), self.run_time / picoseconds, temperature, kinetic, potential, energy))
+        self._data['energy'].append(energy)
+        self._data['kinetic'].append(kinetic)
         self._data['potential'].append(potential)
         self._data['temperature'].append(temperature)
         self._initial = False
@@ -720,6 +751,8 @@ if Deserialize:
         args.deactivate("tinkerpath",msg="Not simulating an AMOEBA system")
     args.deactivate('nonbonded_method', "Specified by the System XML file")
     args.deactivate('nonbonded_cutoff', "Specified by the System XML file")
+    args.deactivate('vdw_switch', "Specified by the System XML file")
+    args.deactivate('switch_distance', "Specified by the System XML file")
     args.deactivate('constraints', "Specified by the System XML file")
     args.deactivate('rigidwater', "Specified by the System XML file")
     args.deactivate('ewald_error_tolerance', "Specified by the System XML file")
@@ -736,13 +769,17 @@ else:
             args.force_active('nonbonded_method',"PME","PME enforced for periodic AMOEBA system.")
             settings += [('nonbondedMethod', PME), ('nonbondedCutoff', args.nonbonded_cutoff * nanometer), 
                          ('vdwCutoff', args.vdw_cutoff), ('useDispersionCorrection', args.dispersion_correction)]
-            if args.pmegrid != None:
+            if 'pmegrid' in args.UserOptions and 'aewald' in args.UserOptions:
                 settings.append(('pmeGridDimensions', args.pmegrid))
-                args.deactivate('aewald',"PME grid was explicitly specified")
+                settings.append(('aEwald', args.aewald))
                 args.deactivate('ewald_error_tolerance',"PME grid was explicitly specified")
             else:
-                settings += [('aEwald', args.aewald)]
-                args.deactivate('ewald_error_tolerance',"Redundant with aewald parameter")
+                settings.append(('ewaldErrorTolerance', args.ewald_error_tolerance))
+                args.deactivate('pmegrid',"pmegrid and aewald must both be specified if they are to be used")
+                args.deactivate('aewald',"pmegrid and aewald must both be specified if they are to be used")
+                args.force_active('ewald_error_tolerance',msg="Activated because pmegrid and aewald were not both specified")
+            args.deactivate('vdw_switch', "AMOEBA vdW interaction has switch function by default.")
+            args.deactivate('switch_distance', "AMOEBA vdW interaction has switch function by default.")
         else:
             args.force_active('nonbonded_method',"NoCutoff","Nonbonded method forced to NoCutoff for nonperiodic AMOEBA system.")
             args.deactivate('nonbonded_cutoff',"Deactivated because nonbonded method forced to NoCutoff")
@@ -751,6 +788,8 @@ else:
             args.deactivate('vdw_cutoff',"Deactivated because nonbonded method forced to NoCutoff")
             args.deactivate('dispersion_correction',"Deactivated because nonbonded method forced to NoCutoff")
             args.deactivate("pmegrid",msg="Deactivated because nonbonded method forced to NoCutoff")
+            args.deactivate('vdw_switch', "Deactivated because nonbonded method forced to NoCutoff")
+            args.deactivate('switch_distance', "Deactivated because nonbonded method forced to NoCutoff")
             settings.append(('nonbondedMethod', NoCutoff))
         if args.polarization_direct:
             logger.info("Setting direct polarization")
@@ -773,26 +812,22 @@ else:
                 raise Exception('Nonbonded methods CutoffPeriodic, Ewald, or PME cannot be used for nonperiodic systems; use NoCutoff or CutoffNonPeriodic instead.')
             if args.nonbonded_method_obj == NoCutoff:
                 args.deactivate('nonbonded_cutoff',"Not using cutoffs for nonbonded interactions.")
+                args.deactivate('vdw_switch', "Deactivated because nonbonded method forced to NoCutoff")
+                args.deactivate('switch_distance', "Deactivated because nonbonded method forced to NoCutoff")
             settings = [('constraints', args.constraints), ('rigidWater', args.rigidwater), ('nonbondedMethod', args.nonbonded_method_obj)]
-            args.deactivate('ewald_error_tolerance',"Nonperiodic system does not use Ewald or PME.")
+            args.deactivate('ewald_error_tolerance',"Deactivated for a nonperiodic system.")
             args.deactivate('dispersion_correction',"Deactivated for a nonperiodic system.")
+        # if 'vdw_switch' in args.ActiveOptions and args.vdw_switch:
+        #     settings += [('useSwitchingFunction', True), ('switchingDistance', args.switch_distance)]
         args.deactivate("vdw_cutoff",msg="Not simulating an AMOEBA system")
         args.deactivate("polarization_direct",msg="Not simulating an AMOEBA system")
         args.deactivate("polar_eps",msg="Not simulating an AMOEBA system")
         args.deactivate("aewald",msg="Not simulating an AMOEBA system")
         args.deactivate("pmegrid",msg="Not simulating an AMOEBA system")
         args.deactivate("tinkerpath",msg="Not simulating an AMOEBA system")
-    logger.info("Now setting up the System")
+    logger.info("Now setting up the System with the following system settings:")
+    printcool_dictionary(dict(settings),title="OpenMM system object will be set up\n using these options:")
     system = forcefield.createSystem(pdb.topology, **dict(settings))
-
-logger.info("--== System Information ==--")
-logger.info("Number of particles   : %i" % system.getNumParticles())
-logger.info("Number of constraints : %i" % system.getNumConstraints())
-logger.info("Total system mass     : %.2f amu" % (compute_mass(system)/amu))
-for f in system.getForces():
-    if f.__class__.__name__ == 'AmoebaMultipoleForce':
-        logger.info("AMOEBA PME order      : %i" % f.getPmeBSplineOrder())
-        logger.info("AMOEBA PME grid       : %s" % str(f.getPmeGridDimensions()))
 
 #====================================#
 #| Temperature and pressure control |#
@@ -806,6 +841,7 @@ if Deserialize:
             sysxml_baro = True
             args.deactivate("pressure", msg="Specified by the System XML file")
             args.deactivate("nbarostat", msg="Specified by the System XML file")
+            args.deactivate("anisotropic", msg="Specified by the System XML file")
             logger.info("The system XML file contains a Monte Carlo barostat at %.2f atm pressure" % (f.getDefaultPressure()/atmosphere))
             if not pbc:
                 raise Exception('System contains a Barostat but the topology contains no periodic box! Exiting...')
@@ -826,21 +862,58 @@ def add_barostat():
         elif pbc:
             logger.info("This is a constant pressure (NPT) run at %.2f atm pressure" % args.pressure)
             logger.info("Adding Monte Carlo barostat with volume adjustment interval %i" % args.nbarostat)
-            barostat = MonteCarloBarostat(args.pressure * atmospheres, args.temperature * kelvin, args.nbarostat)
+            logger.info("Anisotropic box scaling is %s" % ("ON" if args.anisotropic else "OFF"))
+            if args.anisotropic:
+                barostat = MonteCarloAnisotropicBarostat(args.pressure*atmospheres, args.pressure*atmospheres, args.pressure*atmospheres, args.temperature*kelvin, args.nbarostat)
+            else:
+                barostat = MonteCarloBarostat(args.pressure * atmospheres, args.temperature * kelvin, args.nbarostat)
             system.addForce(barostat)
         else:
-            raise Exception('Pressure was specified but the topology contains no periodic box! Exiting...')
+            args.deactivate("pressure", msg="System is nonperiodic")
+            #raise Exception('Pressure was specified but the topology contains no periodic box! Exiting...')
+
+def VelocityVerletIntegrator(timestep):
+    # # Velocity Verlet integrator with explicit velocities.
+    # integrator = CustomIntegrator(timestep / picosecond);
+    # integrator.addPerDofVariable("x1", 0);
+    # integrator.addUpdateContextState();
+    # integrator.addComputePerDof("v", "v+0.5*dt*f/m");
+    # integrator.addComputePerDof("x", "x+dt*v");
+    # integrator.addComputePerDof("x1", "x");
+    # integrator.addConstrainPositions();
+    # integrator.addComputePerDof("v", "v+0.5*dt*f/m+(x-x1)/dt");
+    # integrator.addConstrainVelocities();
+    # return integrator
+    integrator = CustomIntegrator(timestep/picosecond)
+    integrator.addPerDofVariable("x1", 0)
+    integrator.addPerDofVariable("x2", 0)
+    integrator.addUpdateContextState()
+    integrator.addComputePerDof("v", "v+0.5*dt*f/m")
+    integrator.addComputePerDof("x", "x+dt*v")
+    integrator.addComputePerDof("x1", "x")
+    integrator.addConstrainPositions()
+    integrator.addComputePerDof("x2", "x")
+    integrator.addComputePerDof("v", "v+0.5*dt*f/m+(x2-x1)/dt")
+    integrator.addConstrainVelocities()
+    return integrator
+
+def NVEIntegrator():
+    if args.integrator == "verlet":
+        logger.info("Creating a Leapfrog integrator with %.2f fs timestep." % args.timestep)
+        integrator = VerletIntegrator(args.timestep * femtosecond)
+    elif args.integrator == "velocity-verlet":
+        logger.info("Creating a Velocity Verlet integrator with %.2f fs timestep." % args.timestep)
+        integrator = VelocityVerletIntegrator(args.timestep * femtosecond)
+    return integrator
 
 if sysxml_thermo:
     logger.info("Ignoring user-specified temperature control.")
-    logger.info("Creating a Verlet integrator with %.2f fs timestep." % args.timestep)
-    integrator = VerletIntegrator(args.timestep * femtosecond)
+    integrator = NVEIntegrator()
     add_barostat()
 else:
     if args.temperature <= 0.0:
         logger.info("This is a constant energy, constant volume (NVE) run.")
-        logger.info("Creating a Verlet integrator with %.2f fs timestep." % args.timestep)
-        integrator = VerletIntegrator(args.timestep * femtosecond)
+        integrator = NVEIntegrator()
     else:
         logger.info("This is a constant temperature run at %.2f K" % args.temperature)
         logger.info("The stochastic thermostat collision frequency is %.2f ps^-1" % args.collision_rate)
@@ -848,8 +921,7 @@ else:
             logger.info("Creating a Langevin integrator with %.2f fs timestep." % args.timestep)
             integrator = LangevinIntegrator(args.temperature * kelvin, args.collision_rate / picosecond, args.timestep * femtosecond)
         else:
-            logger.info("Creating a Verlet integrator with %.2f fs timestep and adding Andersen thermostat." % args.timestep)
-            integrator = VerletIntegrator(args.timestep * femtosecond)
+            integrator = NVEIntegrator()
             thermostat = AndersenThermostat(args.temperature * kelvin, args.collision_rate / picosecond)
             system.addForce(thermostat)
         if sysxml_baro:
@@ -874,7 +946,7 @@ except:
     args.force_active('platform',"Reference","The %s platform was not found." % args.platform)
     platform = Platform.getPlatformByName("Reference")
 
-if 'device' in args.ActiveOptions and args.device != None:
+if 'device' in args.ActiveOptions:
     # The device may be set using an environment variable or the input file.
     if os.environ.has_key('CUDA_DEVICE'):
         device = os.environ.get('CUDA_DEVICE',str(args.device))
@@ -882,10 +954,13 @@ if 'device' in args.ActiveOptions and args.device != None:
         device = os.environ.get('CUDA_DEVICE_INDEX',str(args.device))
     else:
         device = str(args.device)
-    logger.info("Setting Device to %s" % str(device))
-    platform.setPropertyDefaultValue("CudaDevice", device)
-    platform.setPropertyDefaultValue("CudaDeviceIndex", device)
-    platform.setPropertyDefaultValue("OpenCLDeviceIndex", device)
+    if device != None:
+        logger.info("Setting Device to %s" % str(device))
+        platform.setPropertyDefaultValue("CudaDevice", device)
+        platform.setPropertyDefaultValue("CudaDeviceIndex", device)
+        platform.setPropertyDefaultValue("OpenCLDeviceIndex", device)
+    else:
+        logger.info("Using the default (fastest) device")
 else:
     logger.info("Using the default (fastest) device")
 if "CudaPrecision" in platform.getPropertyNames():
@@ -901,6 +976,13 @@ logger.info("Creating the Simulation object")
 nfrc = system.getNumForces()
 for i in range(nfrc):
     system.getForce(i).setForceGroup(i)
+    # Set vdW switching function manually.
+    f = system.getForce(i)
+    if f.__class__.__name__ == 'NonbondedForce':
+        if 'vdw_switch' in args.ActiveOptions and args.vdw_switch:
+            f.setUseSwitchingFunction(True)
+            f.setSwitchingDistance(args.switch_distance)
+#            settings += [('useSwitchingFunction', True), ('switchingDistance', args.switch_distance)]
 if args.platform != None:
     simulation = Simulation(pdb.topology, system, integrator, platform)
 else:
@@ -914,6 +996,28 @@ if args.serialize != 'None' and args.serialize != None:
 # Print out the platform used by the context
 printcool_dictionary({i:simulation.context.getPlatform().getPropertyValue(simulation.context,i) for i in simulation.context.getPlatform().getPropertyNames()},title="Platform %s has properties:" % simulation.context.getPlatform().getName())
 
+# Print out some more information about the system
+logger.info("--== System Information ==--")
+logger.info("Number of particles   : %i" % simulation.context.getSystem().getNumParticles())
+logger.info("Number of constraints : %i" % simulation.context.getSystem().getNumConstraints())
+logger.info("Total system mass     : %.2f amu" % (compute_mass(system)/amu))
+for f in simulation.context.getSystem().getForces():
+    if f.__class__.__name__ == 'AmoebaMultipoleForce':
+        logger.info("AMOEBA PME order      : %i" % f.getPmeBSplineOrder())
+        logger.info("AMOEBA PME grid       : %s" % str(f.getPmeGridDimensions()))
+    if f.__class__.__name__ == 'NonbondedForce':
+        method_names = ["NoCutoff", "CutoffNonPeriodic", "CutoffPeriodic", "Ewald", "PME"]
+        logger.info("Nonbonded method      : %s" % method_names[f.getNonbondedMethod()])
+        logger.info("Number of particles   : %i" % f.getNumParticles())
+        logger.info("Number of exceptions  : %i" % f.getNumExceptions())
+        if f.getNonbondedMethod() > 0:
+            logger.info("Nonbonded cutoff      : %.3f nm" % (f.getCutoffDistance() / nanometer))
+            if f.getNonbondedMethod() >= 3:
+                logger.info("Ewald error tolerance : %.3e" % (f.getEwaldErrorTolerance()))
+            logger.info("LJ switching function : %i" % f.getUseSwitchingFunction())
+            if f.getUseSwitchingFunction():
+                logger.info("LJ switching distance : %.3f nm" % (f.getSwitchingDistance() / nanometer))
+
 # Print the sample input file here.
 for line in args.record():
     print line
@@ -926,9 +1030,34 @@ if os.path.exists(args.restart_filename) and args.read_restart:
     # Load information from the restart file.
     r_positions, r_velocities, r_boxes = pickle.load(open(args.restart_filename))
     simulation.context.setPositions(r_positions * nanometer)
-    simulation.context.setVelocities(r_velocities * nanometer / picosecond)
     if pbc:
         simulation.context.setPeriodicBoxVectors(r_boxes[0] * nanometer,r_boxes[1] * nanometer, r_boxes[2] * nanometer)
+    if args.integrator != "velocity-verlet":
+        # We will attempt to reconstruct the leapfrog velocities.  First obtain initial velocities.
+        v0 = r_velocities * nanometer / picosecond
+        frc = simulation.context.getState(getForces=True).getForces()
+        # Obtain masses.
+        mass = []
+        for i in range(simulation.context.getSystem().getNumParticles()):
+            mass.append(simulation.context.getSystem().getParticleMass(i)/dalton)
+        mass *= dalton
+        # Get accelerations.
+        accel = []
+        for i in range(simulation.context.getSystem().getNumParticles()):
+            accel.append(frc[i] / mass[i] / (kilojoule/(nanometer*mole*dalton)))# / (kilojoule/(nanometer*mole*dalton)))
+        accel *= kilojoule/(nanometer*mole*dalton)
+        # Propagate velocities backward by half a time step.
+        dv = femtosecond * accel
+        dv *= (-0.5 * args.timestep)
+        vmdt2 = []
+        for i in range(simulation.context.getSystem().getNumParticles()):
+            vmdt2.append((v0[i]/(nanometer/picosecond)) + (dv[i]/(nanometer/picosecond)))
+        vmdt2 *= nanometer/picosecond
+        # Assign velocities.
+        simulation.context.setVelocities(vmdt2)
+        simulation.context.applyVelocityConstraints(0.0001)
+    else:
+        simulation.context.setVelocities(r_velocities * nanometer / picosecond)
     first = 0
 else:
     # Set initial positions.
@@ -993,6 +1122,7 @@ if hasattr(args,'tinkerpath') and args.tinkerpath != None:
 if args.initial_report:
     logger.info("Doing the initial report.")
     for Reporter in simulation.reporters:
+        #if Reporter.__class__.__name__ != "ProgressReport":
         Reporter.report(simulation,simulation.context.getState(getPositions=True,getVelocities=True,getForces=True,getEnergy=True))
 
 t1 = time.time()
@@ -1011,6 +1141,28 @@ if args.write_restart:
     final_state = simulation.context.getState(getEnergy=True,getPositions=True,getVelocities=True,getForces=True)
     Xfin = final_state.getPositions() / nanometer
     Vfin = final_state.getVelocities() / nanometer * picosecond
+    if args.integrator != "velocity-verlet":
+        # We will attempt to get the velocities at the current time.  First obtain initial velocities.
+        v0 = Vfin * nanometer / picosecond
+        frc = simulation.context.getState(getForces=True).getForces()
+        # Obtain masses.
+        mass = []
+        for i in range(simulation.context.getSystem().getNumParticles()):
+            mass.append(simulation.context.getSystem().getParticleMass(i)/dalton)
+        mass *= dalton
+        # Get accelerations.
+        accel = []
+        for i in range(simulation.context.getSystem().getNumParticles()):
+            accel.append(frc[i] / mass[i] / (kilojoule/(nanometer*mole*dalton)))# / (kilojoule/(nanometer*mole*dalton)))
+        accel *= kilojoule/(nanometer*mole*dalton)
+        # Propagate velocities backward by half a time step.
+        dv = femtosecond * accel
+        dv *= (+0.5 * args.timestep)
+        vmdt2 = []
+        for i in range(simulation.context.getSystem().getNumParticles()):
+            vmdt2.append((v0[i]/(nanometer/picosecond)) + (dv[i]/(nanometer/picosecond)))
+        # These are the velocities that we store (make sure it is unitless).
+        Vfin = vmdt2
     Bfin = final_state.getPeriodicBoxVectors() / nanometer
     bak(args.restart_filename)
     logger.info("Restart information will be written to %s" % args.restart_filename)
