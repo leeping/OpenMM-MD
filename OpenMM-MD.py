@@ -271,6 +271,98 @@ def EnergyDecomposition(Sim, verbose=False):
     EnergyTerms['Total'] = Potential+Kinetic
     return EnergyTerms
 
+def MTSVVVRIntegrator(temperature, collision_rate, timestep, system, ninnersteps=4):
+    """
+    Create a multiple timestep velocity verlet with velocity randomization (VVVR) integrator.
+    
+    ARGUMENTS
+
+    temperature (numpy.unit.Quantity compatible with kelvin) - the temperature
+    collision_rate (numpy.unit.Quantity compatible with 1/picoseconds) - the collision rate
+    timestep (numpy.unit.Quantity compatible with femtoseconds) - the integration timestep
+    system (simtk.openmm.System) - system whose forces will be partitioned
+    ninnersteps (int) - number of inner timesteps (default: 4)
+
+    RETURNS
+
+    integrator (openmm.CustomIntegrator) - a VVVR integrator
+
+    NOTES
+    
+    This integrator is equivalent to a Langevin integrator in the velocity Verlet discretization with a
+    timestep correction to ensure that the field-free diffusion constant is timestep invariant.  The inner
+    velocity Verlet discretization is transformed into a multiple timestep algorithm.
+
+    REFERENCES
+
+    VVVR Langevin integrator: 
+    * http://arxiv.org/abs/1301.3800
+    * http://arxiv.org/abs/1107.2967 (to appear in PRX 2013)    
+    
+    TODO
+
+    Move initialization of 'sigma' to setting the per-particle variables.
+    
+    """
+    # Multiple timestep Langevin integrator.
+    for i in system.getForces():
+        if i.__class__.__name__ in ["NonbondedForce", "CustomNonbondedForce", "AmoebaVdwForce", "AmoebaMultipoleForce"]:
+            # Slow force.
+            print i.__class__.__name__, "is a Slow Force"
+            i.setForceGroup(1)
+        else:
+            print i.__class__.__name__, "is a Fast Force"
+            # Fast force.
+            i.setForceGroup(0)
+
+    kB = BOLTZMANN_CONSTANT_kB * AVOGADRO_CONSTANT_NA
+    kT = kB * temperature
+    
+    integrator = openmm.CustomIntegrator(timestep)
+    
+    integrator.addGlobalVariable("dt_fast", timestep/float(ninnersteps)) # fast inner timestep
+    integrator.addGlobalVariable("kT", kT) # thermal energy
+    integrator.addGlobalVariable("a", numpy.exp(-collision_rate*timestep)) # velocity mixing parameter
+    integrator.addGlobalVariable("b", numpy.sqrt((2/(collision_rate*timestep)) * numpy.tanh(collision_rate*timestep/2))) # timestep correction parameter
+    integrator.addPerDofVariable("sigma", 0) 
+    integrator.addPerDofVariable("x1", 0) # position before application of constraints
+
+    #
+    # Pre-computation.
+    # This only needs to be done once, but it needs to be done for each degree of freedom.
+    # Could move this to initialization?
+    #
+    integrator.addComputePerDof("sigma", "sqrt(kT/m)")
+
+    # 
+    # Velocity perturbation.
+    #
+    integrator.addComputePerDof("v", "sqrt(a)*v + sqrt(1-a)*sigma*gaussian")
+    integrator.addConstrainVelocities();
+    
+    #
+    # Symplectic inner multiple timestep.
+    #
+    integrator.addUpdateContextState(); 
+    integrator.addComputePerDof("v", "v + 0.5*b*dt*f1/m")
+    for innerstep in range(ninnersteps):
+        # Fast inner symplectic timestep.
+        integrator.addComputePerDof("v", "v + 0.5*b*dt_fast*f0/m")
+        integrator.addComputePerDof("x", "x + v*b*dt_fast")
+        integrator.addComputePerDof("x1", "x")
+        integrator.addConstrainPositions();        
+        integrator.addComputePerDof("v", "v + 0.5*b*dt_fast*f0/m + (x-x1)/dt_fast")
+    integrator.addComputePerDof("v", "v + 0.5*b*dt*f1/m") # TODO: Additional velocity constraint correction?
+    integrator.addConstrainVelocities();
+
+    #
+    # Velocity randomization
+    #
+    integrator.addComputePerDof("v", "sqrt(a)*v + sqrt(1-a)*sigma*gaussian")
+    integrator.addConstrainVelocities();
+
+    return integrator
+
 def bak(fnm):
     oldfnm = fnm
     if os.path.exists(oldfnm):
@@ -466,9 +558,10 @@ class SimulationOptions(object):
                         val = str(line.replace(s[0],'',1).strip())
                     self.UserOptions[key] = val
         # Now go through the logic of determining which options are activated.
-        self.set_active('integrator','verlet',str,"Molecular dynamics integrator",allowed=["verlet","langevin","velocity-verlet"])
+        self.set_active('integrator','verlet',str,"Molecular dynamics integrator",allowed=["verlet","langevin","velocity-verlet","mtsvvvr"])
         self.set_active('minimize',False,bool,"Specify whether to minimize the energy before running dynamics.")
         self.set_active('timestep',1.0,float,"Time step in femtoseconds.")
+        self.set_active('innerstep',0.5,float,"Inner time step in femtoseconds for MTS integrator.",depend=(self.integrator=="mtsvvvr"))
         self.set_active('restart_filename','restart.p',str,"Restart information will be read from / written to this file (will be backed up).")
         self.set_active('write_restart',True,bool,"Write restart information to the restart file.",
                         depend=(self.restart_filename != None), msg="Writing the restart file has been disabled.")
@@ -524,7 +617,7 @@ class SimulationOptions(object):
         self.set_active('dcd_report_interval',0,int,"Specify a timestep interval for DCD reporter.")
         self.set_active('dcd_report_filename',"output_%s.dcd" % basename,str,"Specify an file name for writing output DCD file.",
                         depend=(self.dcd_report_interval > 0), msg="dcd_report_interval needs to be set to a whole number.")
-        self.set_active('eda_report_interval',0,int,"Specify a timestep interval for Energy reporter.")
+        self.set_active('eda_report_interval',0,int,"Specify a timestep interval for Energy reporter.", clash=(self.integrator=="mtsvvvr"), msg="EDA reporter incompatible with MTS integrator.")
         self.set_active('eda_report_filename',"output_%s.eda" % basename,str,"Specify an file name for writing output Energy file.",
                         depend=(self.eda_report_interval > 0), msg="eda_report_interval needs to be set to a whole number.")
         if self.pmegrid != None:
@@ -873,17 +966,7 @@ def add_barostat():
             #raise Exception('Pressure was specified but the topology contains no periodic box! Exiting...')
 
 def VelocityVerletIntegrator(timestep):
-    # # Velocity Verlet integrator with explicit velocities.
-    # integrator = CustomIntegrator(timestep / picosecond);
-    # integrator.addPerDofVariable("x1", 0);
-    # integrator.addUpdateContextState();
-    # integrator.addComputePerDof("v", "v+0.5*dt*f/m");
-    # integrator.addComputePerDof("x", "x+dt*v");
-    # integrator.addComputePerDof("x1", "x");
-    # integrator.addConstrainPositions();
-    # integrator.addComputePerDof("v", "v+0.5*dt*f/m+(x-x1)/dt");
-    # integrator.addConstrainVelocities();
-    # return integrator
+    # Velocity Verlet integrator with explicit velocities.
     integrator = CustomIntegrator(timestep/picosecond)
     integrator.addPerDofVariable("x1", 0)
     integrator.addPerDofVariable("x2", 0)
@@ -920,6 +1003,11 @@ else:
         if args.integrator == "langevin":
             logger.info("Creating a Langevin integrator with %.2f fs timestep." % args.timestep)
             integrator = LangevinIntegrator(args.temperature * kelvin, args.collision_rate / picosecond, args.timestep * femtosecond)
+        elif args.integrator == "mtsvvvr":
+            logger.info("Creating a multiple timestep Langevin integrator with %.2f / %.2f fs outer/inner timestep." % (args.timestep, args.innerstep))
+            if int(args.timestep / args.innerstep) != args.timestep / args.innerstep:
+                raise Exception("The inner step must be an even subdivision of the time step.")
+            integrator = MTSVVVRIntegrator(args.temperature * kelvin, args.collision_rate / picosecond, args.timestep * femtosecond, system, int(args.timestep / args.innerstep))
         else:
             integrator = NVEIntegrator()
             thermostat = AndersenThermostat(args.temperature * kelvin, args.collision_rate / picosecond)
@@ -973,16 +1061,17 @@ if "CudaPrecision" in platform.getPropertyNames():
 #==================================#
 logger.info("Creating the Simulation object")
 # Get the number of forces and set each force to a different force group number.
-nfrc = system.getNumForces()
-for i in range(nfrc):
-    system.getForce(i).setForceGroup(i)
-    # Set vdW switching function manually.
-    f = system.getForce(i)
-    if f.__class__.__name__ == 'NonbondedForce':
-        if 'vdw_switch' in args.ActiveOptions and args.vdw_switch:
-            f.setUseSwitchingFunction(True)
-            f.setSwitchingDistance(args.switch_distance)
-#            settings += [('useSwitchingFunction', True), ('switchingDistance', args.switch_distance)]
+if 'eda_report_interval' in args.ActiveOptions and args.eda_report_interval > 0:
+    nfrc = system.getNumForces()
+    for i in range(nfrc):
+        system.getForce(i).setForceGroup(i)
+        # Set vdW switching function manually.
+        f = system.getForce(i)
+        if f.__class__.__name__ == 'NonbondedForce':
+            if 'vdw_switch' in args.ActiveOptions and args.vdw_switch:
+                f.setUseSwitchingFunction(True)
+                f.setSwitchingDistance(args.switch_distance)
+    #            settings += [('useSwitchingFunction', True), ('switchingDistance', args.switch_distance)]
 if args.platform != None:
     simulation = Simulation(pdb.topology, system, integrator, platform)
 else:
@@ -1032,7 +1121,7 @@ if os.path.exists(args.restart_filename) and args.read_restart:
     simulation.context.setPositions(r_positions * nanometer)
     if pbc:
         simulation.context.setPeriodicBoxVectors(r_boxes[0] * nanometer,r_boxes[1] * nanometer, r_boxes[2] * nanometer)
-    if args.integrator != "velocity-verlet":
+    if args.integrator not in ["velocity-verlet", "mtsvvvr"]:
         # We will attempt to reconstruct the leapfrog velocities.  First obtain initial velocities.
         v0 = r_velocities * nanometer / picosecond
         frc = simulation.context.getState(getForces=True).getForces()
@@ -1109,7 +1198,7 @@ if args.dcd_report_interval > 0:
     logger.info("DCD Reporter will write to %s every %i steps" % (args.dcd_report_filename, args.dcd_report_interval))
     simulation.reporters.append(DCDReporter(args.dcd_report_filename, args.dcd_report_interval))
 
-if args.eda_report_interval > 0:
+if 'eda_report_interval' in args.ActiveOptions and args.eda_report_interval > 0:
     bak(args.eda_report_filename)
     logger.info("Energy Reporter will write to %s every %i steps" % (args.eda_report_filename, args.eda_report_interval))
     simulation.reporters.append(EnergyReporter(args.eda_report_filename, args.eda_report_interval, first))
@@ -1141,7 +1230,7 @@ if args.write_restart:
     final_state = simulation.context.getState(getEnergy=True,getPositions=True,getVelocities=True,getForces=True)
     Xfin = final_state.getPositions() / nanometer
     Vfin = final_state.getVelocities() / nanometer * picosecond
-    if args.integrator != "velocity-verlet":
+    if args.integrator not in ["velocity-verlet", "mtsvvvr"]:
         # We will attempt to get the velocities at the current time.  First obtain initial velocities.
         v0 = Vfin * nanometer / picosecond
         frc = simulation.context.getState(getForces=True).getForces()
