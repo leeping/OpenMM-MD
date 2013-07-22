@@ -563,19 +563,18 @@ class SimulationOptions(object):
         self.set_active('timestep',1.0,float,"Time step in femtoseconds.")
         self.set_active('innerstep',0.5,float,"Inner time step in femtoseconds for MTS integrator.",depend=(self.integrator=="mtsvvvr"))
         self.set_active('restart_filename','restart.p',str,"Restart information will be read from / written to this file (will be backed up).")
-        self.set_active('write_restart',True,bool,"Write restart information to the restart file.",
-                        depend=(self.restart_filename != None), msg="Writing the restart file has been disabled.")
         self.set_active('read_restart',True,bool,"Restart simulation from the restart file.",
                         depend=(os.path.exists(self.restart_filename)), msg="Cannot restart; file specified by restart_filename does not exist.")
+        self.set_active('restart_interval',1000,int,"Specify a timestep interval for writing the restart file.")
         self.set_active('equilibrate',0,int,"Number of steps reserved for equilibration.")
         self.set_active('production',1000,int,"Number of steps in production run.")
         self.set_active('report_interval',100,int,"Number of steps between every progress report.")
         self.set_active('temperature',0.0,float,"Simulation temperature for Langevin integrator or Andersen thermostat.")
-        if self.temperature <= 0.0 and self.integrator == "langevin":
-            raise Exception("You need to set a finite temperature if using the Langevin integrator!")
+        if self.temperature <= 0.0 and self.integrator in ["langevin", "mtsvvvr"]:
+            raise Exception("You need to set a finite temperature if using the Langevin or MTS-VVVR integrator!")
         self.set_active('gentemp',self.temperature,float,"Specify temperature for generating velocities")
         self.set_active('collision_rate',0.1,float,"Collision frequency for Langevin integrator or Andersen thermostat in ps^-1.",
-                        depend=(self.integrator == "langevin" or self.temperature != 0.0),
+                        depend=(self.integrator in ["langevin", "mtsvvvr"] or self.temperature != 0.0),
                         msg="We're not running a constant temperature simulation")
         self.set_active('pressure',0.0,float,"Simulation pressure; set a positive number to activate.",
                         clash=(self.temperature <= 0.0),
@@ -780,6 +779,46 @@ class EnergyReporter(object):
         if self._openedFile:
             self._out.close()
 
+class RestartReporter(object):
+    def __init__(self, file, reportInterval, integrator, timestep):
+        self._reportInterval = reportInterval
+        self._file = file
+        self._integrator = integrator
+        self._timestep = timestep
+    
+    def describeNextReport(self, simulation):
+        steps = self._reportInterval - simulation.currentStep%self._reportInterval
+        return (steps, False, False, False, False)
+
+    def report(self, simulation, state):
+        final_state = simulation.context.getState(getEnergy=True,getPositions=True,getVelocities=True,getForces=True)
+        Xfin = final_state.getPositions() / nanometer
+        Vfin = final_state.getVelocities() / nanometer * picosecond
+        if self._integrator not in ["velocity-verlet", "mtsvvvr"]:
+            # We will attempt to get the velocities at the current time.  First obtain initial velocities.
+            v0 = Vfin * nanometer / picosecond
+            frc = simulation.context.getState(getForces=True).getForces()
+            # Obtain masses.
+            mass = []
+            for i in range(simulation.context.getSystem().getNumParticles()):
+                mass.append(simulation.context.getSystem().getParticleMass(i)/dalton)
+            mass *= dalton
+            # Get accelerations.
+            accel = []
+            for i in range(simulation.context.getSystem().getNumParticles()):
+                accel.append(frc[i] / mass[i] / (kilojoule/(nanometer*mole*dalton)))# / (kilojoule/(nanometer*mole*dalton)))
+            accel *= kilojoule/(nanometer*mole*dalton)
+            # Propagate velocities backward by half a time step.
+            dv = femtosecond * accel
+            dv *= (+0.5 * self._timestep)
+            vmdt2 = []
+            for i in range(simulation.context.getSystem().getNumParticles()):
+                vmdt2.append((v0[i]/(nanometer/picosecond)) + (dv[i]/(nanometer/picosecond)))
+            # These are the velocities that we store (make sure it is unitless).
+            Vfin = vmdt2
+        Bfin = final_state.getPeriodicBoxVectors() / nanometer
+        with open(os.path.join(self._file),'w') as f: pickle.dump((Xfin, Vfin, Bfin),f)
+
 # Create an OpenMM PDB object.
 pdb = PDBFile(pdbfnm)
 
@@ -943,8 +982,8 @@ if Deserialize:
             args.deactivate("temperature", msg="Specified by the System XML file")
             args.deactivate("collision_rate", msg="Specified by the System XML file")
             logger.info("The system XML file contains an Andersen thermostat at %.2f K temperature" % (f.getDefaultTemperature()/kelvin))
-            if args.integrator == "langevin":
-                raise Exception('Cannot create a Langevin integrator with existing temperature control! Exiting...')
+            if args.integrator in ["langevin", "mtsvvvr"]:
+                raise Exception('Cannot create a Langevin or MTS-VVVR integrator with existing temperature control! Exiting...')
 
 def add_barostat():
     if sysxml_baro:
@@ -1198,6 +1237,11 @@ if args.dcd_report_interval > 0:
     logger.info("DCD Reporter will write to %s every %i steps" % (args.dcd_report_filename, args.dcd_report_interval))
     simulation.reporters.append(DCDReporter(args.dcd_report_filename, args.dcd_report_interval))
 
+if args.restart_interval > 0:
+    bak(args.restart_filename)
+    logger.info("Restart information will be written to %s every %i steps" % (args.restart_filename, args.restart_interval))
+    simulation.reporters.append(RestartReporter(args.restart_filename, args.restart_interval, args.integrator, args.timestep))
+
 if 'eda_report_interval' in args.ActiveOptions and args.eda_report_interval > 0:
     bak(args.eda_report_filename)
     logger.info("Energy Reporter will write to %s every %i steps" % (args.eda_report_filename, args.eda_report_interval))
@@ -1226,36 +1270,6 @@ prodtime = time.time() - t1
 #=============================================#
 logger.info('Getting statistics for the production run.')
 simulation.reporters[0].analyze(simulation)
-if args.write_restart:
-    final_state = simulation.context.getState(getEnergy=True,getPositions=True,getVelocities=True,getForces=True)
-    Xfin = final_state.getPositions() / nanometer
-    Vfin = final_state.getVelocities() / nanometer * picosecond
-    if args.integrator not in ["velocity-verlet", "mtsvvvr"]:
-        # We will attempt to get the velocities at the current time.  First obtain initial velocities.
-        v0 = Vfin * nanometer / picosecond
-        frc = simulation.context.getState(getForces=True).getForces()
-        # Obtain masses.
-        mass = []
-        for i in range(simulation.context.getSystem().getNumParticles()):
-            mass.append(simulation.context.getSystem().getParticleMass(i)/dalton)
-        mass *= dalton
-        # Get accelerations.
-        accel = []
-        for i in range(simulation.context.getSystem().getNumParticles()):
-            accel.append(frc[i] / mass[i] / (kilojoule/(nanometer*mole*dalton)))# / (kilojoule/(nanometer*mole*dalton)))
-        accel *= kilojoule/(nanometer*mole*dalton)
-        # Propagate velocities backward by half a time step.
-        dv = femtosecond * accel
-        dv *= (+0.5 * args.timestep)
-        vmdt2 = []
-        for i in range(simulation.context.getSystem().getNumParticles()):
-            vmdt2.append((v0[i]/(nanometer/picosecond)) + (dv[i]/(nanometer/picosecond)))
-        # These are the velocities that we store (make sure it is unitless).
-        Vfin = vmdt2
-    Bfin = final_state.getPeriodicBoxVectors() / nanometer
-    bak(args.restart_filename)
-    logger.info("Restart information will be written to %s" % args.restart_filename)
-    with open(os.path.join(args.restart_filename),'w') as f: pickle.dump((Xfin, Vfin, Bfin),f)
 print "Total wall time: % .4f seconds" % (time.time() - t0)
 print "Production wall time: % .4f seconds" % (prodtime)
 print "Simulation speed: % .6f ns/day" % (86400*args.production*args.timestep*femtosecond/nanosecond/(prodtime))
