@@ -1083,9 +1083,9 @@ if 'device' in args.ActiveOptions:
         device = str(args.device)
     if device != None:
         logger.info("Setting Device to %s" % str(device))
-        platform.setPropertyDefaultValue("CudaDevice", device)
+        #platform.setPropertyDefaultValue("CudaDevice", device)
         platform.setPropertyDefaultValue("CudaDeviceIndex", device)
-        platform.setPropertyDefaultValue("OpenCLDeviceIndex", device)
+        #platform.setPropertyDefaultValue("OpenCLDeviceIndex", device)
     else:
         logger.info("Using the default (fastest) device")
 else:
