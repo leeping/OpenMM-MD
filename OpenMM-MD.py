@@ -589,7 +589,7 @@ class SimulationOptions(object):
         self.set_active('vdw_switch',True,bool,"Use a multiplicative switching function to ensure twice-differentiable vdW energies near the cutoff distance.")
         self.set_active('switch_distance',0.8,float,"Set the distance where the switching function starts; must be less than the nonbonded cutoff.")
         self.set_active('dispersion_correction',True,bool,"Isotropic long-range dispersion correction for periodic systems.")
-        self.set_active('ewald_error_tolerance',0.00005,float,"Error tolerance for Ewald and PME methods.  Don't go below 5e-5 for PME unless running in double precision.",
+        self.set_active('ewald_error_tolerance',0.0,float,"Error tolerance for Ewald and PME methods.  Don't go below 5e-5 for PME unless running in double precision.",
                         depend=(self.nonbonded_method_obj in [Ewald, PME]), msg="Nonbonded method must be set to Ewald or PME.")
         self.set_active('platform',"CUDA",str,"The simulation platform.", allowed=["Reference","CUDA","OpenCL"])
         self.set_active('cuda_precision','single',str,"The precision of the CUDA platform.", allowed=["single","mixed","double"], 
@@ -690,6 +690,9 @@ class ProgressReport(object):
         return (steps, False, False, False, True)
 
     def analyze(self, simulation):
+        if self._initial:
+            print "No stats to report"
+            return
         PrintDict = OrderedDict()
         for datatype in self._units:
             data   = np.array(self._data[datatype])
@@ -905,11 +908,11 @@ else:
                 settings.append(('pmeGridDimensions', args.pmegrid))
                 settings.append(('aEwald', args.aewald))
                 args.deactivate('ewald_error_tolerance',"PME grid was explicitly specified")
-            else:
+            elif 'ewald_error_tolerance' in args.UserOptions:
                 settings.append(('ewaldErrorTolerance', args.ewald_error_tolerance))
                 args.deactivate('pmegrid',"pmegrid and aewald must both be specified if they are to be used")
                 args.deactivate('aewald',"pmegrid and aewald must both be specified if they are to be used")
-                args.force_active('ewald_error_tolerance',msg="Activated because pmegrid and aewald were not both specified")
+                # args.force_active('ewald_error_tolerance',msg="Activated because pmegrid and aewald were not both specified")
             args.deactivate('vdw_switch', "AMOEBA vdW interaction has switch function by default.")
             args.deactivate('switch_distance', "AMOEBA vdW interaction has switch function by default.")
         else:
@@ -935,10 +938,10 @@ else:
         if pbc:
             settings = [('constraints', args.constraints), ('rigidWater', args.rigidwater), ('nonbondedMethod', args.nonbonded_method_obj), 
                         ('nonbondedCutoff', args.nonbonded_cutoff * nanometer), ('useDispersionCorrection', True)]
-            if args.nonbonded_method_obj in [Ewald, PME]:
+            if (args.nonbonded_method_obj in [Ewald, PME]) and ('ewald_error_tolerance' in args.UserOptions):
                 settings += [('ewaldErrorTolerance', args.ewald_error_tolerance)]
-            else:
-                args.deactivate('ewald_error_tolerance',"Not using Ewald or PME for periodic nonbonded interactions.")
+            # else:
+            #     args.deactivate('ewald_error_tolerance',"Not using Ewald or PME for periodic nonbonded interactions.")
         else:
             if args.nonbonded_method_obj in [CutoffPeriodic, Ewald, PME]:
                 raise Exception('Nonbonded methods CutoffPeriodic, Ewald, or PME cannot be used for nonperiodic systems; use NoCutoff or CutoffNonPeriodic instead.')
