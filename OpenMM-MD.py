@@ -690,9 +690,6 @@ class ProgressReport(object):
         return (steps, False, False, False, True)
 
     def analyze(self, simulation):
-        if self._initial:
-            print "No stats to report"
-            return
         PrintDict = OrderedDict()
         for datatype in self._units:
             data   = np.array(self._data[datatype])
@@ -908,11 +905,12 @@ else:
                 settings.append(('pmeGridDimensions', args.pmegrid))
                 settings.append(('aEwald', args.aewald))
                 args.deactivate('ewald_error_tolerance',"PME grid was explicitly specified")
+                if 'ewald_error_tolerance' in args.UserOptions:
+                    logger.info("Both pmegrid and aEwald have been set, ewald_error_tolerance is not used.")
             elif 'ewald_error_tolerance' in args.UserOptions:
                 settings.append(('ewaldErrorTolerance', args.ewald_error_tolerance))
                 args.deactivate('pmegrid',"pmegrid and aewald must both be specified if they are to be used")
                 args.deactivate('aewald',"pmegrid and aewald must both be specified if they are to be used")
-                # args.force_active('ewald_error_tolerance',msg="Activated because pmegrid and aewald were not both specified")
             args.deactivate('vdw_switch', "AMOEBA vdW interaction has switch function by default.")
             args.deactivate('switch_distance', "AMOEBA vdW interaction has switch function by default.")
         else:
@@ -940,8 +938,6 @@ else:
                         ('nonbondedCutoff', args.nonbonded_cutoff * nanometer), ('useDispersionCorrection', True)]
             if (args.nonbonded_method_obj in [Ewald, PME]) and ('ewald_error_tolerance' in args.UserOptions):
                 settings += [('ewaldErrorTolerance', args.ewald_error_tolerance)]
-            # else:
-            #     args.deactivate('ewald_error_tolerance',"Not using Ewald or PME for periodic nonbonded interactions.")
         else:
             if args.nonbonded_method_obj in [CutoffPeriodic, Ewald, PME]:
                 raise Exception('Nonbonded methods CutoffPeriodic, Ewald, or PME cannot be used for nonperiodic systems; use NoCutoff or CutoffNonPeriodic instead.')
@@ -999,7 +995,8 @@ def add_barostat():
             logger.info("Adding Monte Carlo barostat with volume adjustment interval %i" % args.nbarostat)
             logger.info("Anisotropic box scaling is %s" % ("ON" if args.anisotropic else "OFF"))
             if args.anisotropic:
-                barostat = MonteCarloAnisotropicBarostat(args.pressure*atmospheres, args.pressure*atmospheres, args.pressure*atmospheres, args.temperature*kelvin, args.nbarostat)
+                logger.info("Only the Z-axis will be adjusted")
+                barostat = MonteCarloAnisotropicBarostat(Vec3(args.pressure*atmospheres, args.pressure*atmospheres, args.pressure*atmospheres), args.temperature*kelvin, False, False, True, args.nbarostat)
             else:
                 barostat = MonteCarloBarostat(args.pressure * atmospheres, args.temperature * kelvin, args.nbarostat)
             system.addForce(barostat)
@@ -1103,17 +1100,17 @@ if "CudaPrecision" in platform.getPropertyNames():
 #==================================#
 logger.info("Creating the Simulation object")
 # Get the number of forces and set each force to a different force group number.
-if 'eda_report_interval' in args.ActiveOptions and args.eda_report_interval > 0:
-    nfrc = system.getNumForces()
+nfrc = system.getNumForces()
+if args.integrator != 'mtsvvvr':
     for i in range(nfrc):
         system.getForce(i).setForceGroup(i)
-        # Set vdW switching function manually.
-        f = system.getForce(i)
-        if f.__class__.__name__ == 'NonbondedForce':
-            if 'vdw_switch' in args.ActiveOptions and args.vdw_switch:
-                f.setUseSwitchingFunction(True)
-                f.setSwitchingDistance(args.switch_distance)
-    #            settings += [('useSwitchingFunction', True), ('switchingDistance', args.switch_distance)]
+for i in range(nfrc):
+    # Set vdW switching function manually.
+    f = system.getForce(i)
+    if f.__class__.__name__ == 'NonbondedForce':
+        if 'vdw_switch' in args.ActiveOptions and args.vdw_switch:
+            f.setUseSwitchingFunction(True)
+            f.setSwitchingDistance(args.switch_distance)
 if args.platform != None:
     simulation = Simulation(pdb.topology, system, integrator, platform)
 else:
@@ -1193,6 +1190,12 @@ if os.path.exists(args.restart_filename) and args.read_restart:
 else:
     # Set initial positions.
     simulation.context.setPositions(pdb.positions)
+    print "Initial potential is:", simulation.context.getState(getEnergy=True).getPotentialEnergy()
+    if args.integrator != 'mtsvvvr':
+        eda = EnergyDecomposition(simulation)
+        eda_kcal = OrderedDict([(i, "%10.4f" % (j/4.184)) for i, j in eda.items()])
+        printcool_dictionary(eda_kcal, title="Energy Decomposition (kcal/mol)")
+    
     # Minimize the energy.
     if args.minimize:
         print "Minimization start, the energy is:", simulation.context.getState(getEnergy=True).getPotentialEnergy()
