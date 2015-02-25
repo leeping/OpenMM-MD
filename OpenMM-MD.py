@@ -70,7 +70,11 @@ logger.propagate = False
 def GetTime(sec):
     sec = timedelta(seconds=sec)
     d = datetime(1,1,1) + sec
-    if d.day-1 > 0:
+    if d.year > 1:
+        return("%dY%02dM%02dd%02dh%02dm%02ds" % (d.year-1, d.month-1, d.day-1, d.hour, d.minute, d.second))
+    elif d.month > 1:
+        return("%dM%02dd%02dh%02dm%02ds" % (d.month-1, d.day-1, d.hour, d.minute, d.second))
+    elif d.day > 1:
         return("%dd%02dh%02dm%02ds" % (d.day-1, d.hour, d.minute, d.second))
     elif d.hour > 0: 
         return("%dh%02dm%02ds" % (d.hour, d.minute, d.second))
@@ -733,14 +737,14 @@ class ProgressReport(object):
             volume = compute_volume(box_vectors) / self._units['volume']
             density = (mass / compute_volume(box_vectors)) / self._units['density']
             if self._initial:
-                logger.info("%8s %12s %13s %13s %13s %13s %13s %13s %13s" % ('Progress', 'E.T.A', 'Time(ps)', 'Temp(K)', 'Kin(kJ)', 'Pot(kJ)', 'Ene(kJ)', 'Vol(nm3)', 'Rho(kg/m3)'))
-            logger.info("%7.3f%% %12s %13.5f %13.5f %13.5f %13.5f %13.5f %13.5f %13.5f" % (pct, GetTime(timeleft), self.run_time / picoseconds, temperature, kinetic, potential, energy, volume, density))
+                logger.info("%8s %17s %13s %13s %13s %13s %13s %13s %13s" % ('Progress', 'E.T.A', 'Time(ps)', 'Temp(K)', 'Kin(kJ)', 'Pot(kJ)', 'Ene(kJ)', 'Vol(nm3)', 'Rho(kg/m3)'))
+            logger.info("%7.3f%% %17s %13.5f %13.5f %13.5f %13.5f %13.5f %13.5f %13.5f" % (pct, GetTime(timeleft), self.run_time / picoseconds, temperature, kinetic, potential, energy, volume, density))
             self._data['volume'].append(volume)
             self._data['density'].append(density)
         else:
             if self._initial:
-                logger.info("%8s %12s %13s %13s %13s %13s %13s" % ('Progress', 'E.T.A', 'Time(ps)', 'Temp(K)', 'Kin(kJ)', 'Pot(kJ)', 'Ene(kJ)'))
-            logger.info("%7.3f%% %12s %13.5f %13.5f %13.5f %13.5f %13.5f" % (pct, GetTime(timeleft), self.run_time / picoseconds, temperature, kinetic, potential, energy))
+                logger.info("%8s %17s %13s %13s %13s %13s %13s" % ('Progress', 'E.T.A', 'Time(ps)', 'Temp(K)', 'Kin(kJ)', 'Pot(kJ)', 'Ene(kJ)'))
+            logger.info("%7.3f%% %17s %13.5f %13.5f %13.5f %13.5f %13.5f" % (pct, GetTime(timeleft), self.run_time / picoseconds, temperature, kinetic, potential, energy))
         self._data['energy'].append(energy)
         self._data['kinetic'].append(kinetic)
         self._data['potential'].append(potential)
@@ -817,7 +821,11 @@ class RestartReporter(object):
             # These are the velocities that we store (make sure it is unitless).
             Vfin = vmdt2
         Bfin = final_state.getPeriodicBoxVectors() / nanometer
-        with open(os.path.join(self._file),'w') as f: pickle.dump((Xfin, Vfin, Bfin),f)
+        # Back up the existing file
+        if os.path.exists(self._file):
+            shutil.move(self._file, self._file+".bak")
+        # Write the restart file pickle
+        with open(self._file,'w') as f: pickle.dump((Xfin, Vfin, Bfin),f)
 
 # Create an OpenMM PDB object.
 pdb = PDBFile(pdbfnm)
@@ -1157,9 +1165,10 @@ if os.path.exists(args.restart_filename) and args.read_restart:
     print "Restarting simulation from the restart file."
     # Load information from the restart file.
     r_positions, r_velocities, r_boxes = pickle.load(open(args.restart_filename))
-    simulation.context.setPositions(r_positions * nanometer)
+    # NOTE: Periodic box vectors must be set FIRST
     if pbc:
         simulation.context.setPeriodicBoxVectors(r_boxes[0] * nanometer,r_boxes[1] * nanometer, r_boxes[2] * nanometer)
+    simulation.context.setPositions(r_positions * nanometer)
     if args.integrator not in ["velocity-verlet", "mtsvvvr"]:
         # We will attempt to reconstruct the leapfrog velocities.  First obtain initial velocities.
         v0 = r_velocities * nanometer / picosecond
