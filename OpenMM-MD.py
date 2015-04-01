@@ -966,7 +966,9 @@ else:
         args.deactivate("tinkerpath",msg="Not simulating an AMOEBA system")
     logger.info("Now setting up the System with the following system settings:")
     printcool_dictionary(dict(settings),title="OpenMM system object will be set up\n using these options:")
-    system = forcefield.createSystem(pdb.topology, **dict(settings))
+    modeller = Modeller(pdb.topology, pdb.positions)
+    modeller.addExtraParticles(forcefield)
+    system = forcefield.createSystem(modeller.topology, **dict(settings))
 
 #====================================#
 #| Temperature and pressure control |#
@@ -1120,9 +1122,9 @@ for i in range(nfrc):
             f.setUseSwitchingFunction(True)
             f.setSwitchingDistance(args.switch_distance)
 if args.platform != None:
-    simulation = Simulation(pdb.topology, system, integrator, platform)
+    simulation = Simulation(modeller.topology, system, integrator, platform)
 else:
-    simulation = Simulation(pdb.topology, system, integrator)
+    simulation = Simulation(modeller.topology, system, integrator)
 # Serialize the system if we want.
 if args.serialize != 'None' and args.serialize != None:
     logger.info("Serializing the system")
@@ -1198,7 +1200,7 @@ if os.path.exists(args.restart_filename) and args.read_restart:
     first = 0
 else:
     # Set initial positions.
-    simulation.context.setPositions(pdb.positions)
+    simulation.context.setPositions(modeller.positions)
     print "Initial potential is:", simulation.context.getState(getEnergy=True).getPotentialEnergy()
     if args.integrator != 'mtsvvvr':
         eda = EnergyDecomposition(simulation)
@@ -1212,7 +1214,7 @@ else:
         print "Minimization done, the energy is", simulation.context.getState(getEnergy=True).getPotentialEnergy()
         positions = simulation.context.getState(getPositions=True).getPositions()
         print "Minimized geometry is written to 'minimized.pdb'"
-        PDBFile.writeModel(pdb.topology, positions, open('minimized.pdb','w'))
+        PDBFile.writeModel(modeller.topology, positions, open('minimized.pdb','w'))
     # Assign velocities.
     if args.gentemp > 0.0:
         logger.info("Generating velocities corresponding to Maxwell distribution at %.2f K" % args.gentemp)
