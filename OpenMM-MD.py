@@ -378,6 +378,40 @@ def bak(fnm):
         logger.info("Backing up %s -> %s" % (oldfnm, fnm))
         shutil.move(oldfnm,fnm)
 
+def uncommadash(s):
+    # Takes a string like '27-31,88-91,100,136-139'
+    # and turns it into a list like [26, 27, 28, 29, 30, 87, 88, 89, 90, 99, 135, 136, 137, 138]
+    L = []
+    try:
+        for w in s.split(','):
+            ws = w.split('-')
+            a = int(ws[0])-1
+            if len(ws) == 1:
+                b = int(ws[0])
+            elif len(ws) == 2:
+                b = int(ws[1])
+            else:
+                logger.warning("Dash-separated list cannot exceed length 2\n")
+                raise
+            if a < 0 or b <= 0 or b <= a:
+                if a < 0 or b <= 0:
+                    logger.warning("Items in list cannot be zero or negative: %d %d\n" % (a, b))
+                else:
+                    logger.warning("Second number cannot be smaller than first: %d %d\n" % (a, b))
+                raise
+            newL = range(a,b)
+            if any([i in L for i in newL]):
+                logger.warning("Duplicate entries found in list\n")
+                raise
+            L += newL
+        if sorted(L) != L:
+            logger.warning("List is out of order\n")
+            raise
+    except:
+        logger.error('Invalid string for converting to list of numbers: %s\n' % s)
+        raise RuntimeError
+    return L
+
 
 #================================#
 #     The input file parser      #
@@ -409,7 +443,10 @@ class SimulationOptions(object):
         if typ is bool and type(val) == int:
             val = bool(val)
         if val != None and type(val) is not typ:
-            raise Exception("Tried to set option \x1b[1;91m%s\x1b[0m to \x1b[94m%s\x1b[0m but it's not the right type (%s required)" % (key, str(val), str(typ)))
+            if type(val) in [tuple, list] and typ is str:
+                val = ','.join([str(v) for v in val])
+            else:
+                raise Exception("Tried to set option \x1b[1;91m%s\x1b[0m to \x1b[94m%s\x1b[0m but it's not the right type (%s required)" % (key, str(val), str(typ)))
         if depend and not clash:
             if key in self.InactiveOptions:
                 del self.InactiveOptions[key]
@@ -630,7 +667,7 @@ class SimulationOptions(object):
         if self.tinkerpath != None:
             assert os.path.exists(os.path.join(self.tinkerpath,'dynamic')), "tinkerpath must point to a directory that contains TINKER executables."
         self.set_active('pos_res_k',1e5,float,"Set the force constant for the positional restraints.")
-        self.set_active('pos_res_atoms',None,tuple,"Set the indices of the atoms that will be restrained to their original position.", depend=(self.pos_res_k > 0),msg="Restrain force constants k must > 0")
+        self.set_active('pos_res_atoms',None,str,"Set the indices of the atoms that will be restrained to their original position.", depend=(self.pos_res_k > 0),msg="Restrain force constants k must > 0")
 
 
 #================================#
@@ -984,7 +1021,7 @@ else:
     ex_force.addPerParticleParameter('y0')
     ex_force.addPerParticleParameter('z0')
     # Add force for each atom using there position
-    for atom_idx in args.pos_res_atoms:
+    for atom_idx in uncommadash(args.pos_res_atoms):
         ex_force.addParticle(atom_idx-1, pdb.positions[atom_idx-1])
     system.addForce(ex_force)
 
