@@ -76,11 +76,11 @@ def GetTime(sec):
         return("%dM%02dd%02dh%02dm%02ds" % (d.month-1, d.day-1, d.hour, d.minute, d.second))
     elif d.day > 1:
         return("%dd%02dh%02dm%02ds" % (d.day-1, d.hour, d.minute, d.second))
-    elif d.hour > 0: 
+    elif d.hour > 0:
         return("%dh%02dm%02ds" % (d.hour, d.minute, d.second))
-    elif d.minute > 0: 
+    elif d.minute > 0:
         return("%dm%02ds" % (d.minute, d.second))
-    elif d.second > 0: 
+    elif d.second > 0:
         return("%ds" % (d.second))
 
 def statisticalInefficiency(A_n, B_n=None, fast=False, mintime=3):
@@ -204,7 +204,7 @@ def printcool(text,sym="#",bold=False,color=2,ansi=None,bottom='-',minwidth=50):
     <tt> ################# </tt>
     @param[in] sym The surrounding symbol\n
     @param[in] bold Whether to use bold print
-    
+
     @param[in] color The ANSI color:\n
     1 red\n
     2 green\n
@@ -213,13 +213,13 @@ def printcool(text,sym="#",bold=False,color=2,ansi=None,bottom='-',minwidth=50):
     5 magenta\n
     6 cyan\n
     7 white
-    
+
     @param[in] bottom The symbol for the bottom bar
 
     @param[in] minwidth The minimum width for the box, if the text is very short
     then we insert the appropriate number of padding spaces
 
-    @return bar The bottom bar is returned for the user to print later, e.g. to mark off a 'section'    
+    @return bar The bottom bar is returned for the user to print later, e.g. to mark off a 'section'
     """
     if logger.getEffectiveLevel() < 20: return
     def newlen(l):
@@ -257,7 +257,7 @@ def printcool_dictionary(Dict,title="General options",bold=False,color=2,keywidt
         # Useful for printing nice-looking dictionaries, i guess.
         #print "\'%%-%is\' %% '%s'" % (keywidth,str.replace("'","\\'").replace('"','\\"'))
         return eval("\'%%-%is\' %% '%s'" % (keywidth,str.replace("'","\\'").replace('"','\\"')))
-    if isinstance(Dict, OrderedDict): 
+    if isinstance(Dict, OrderedDict):
         print '\n'.join(["%s %s " % (magic_string(str(key)),str(Dict[key])) for key in Dict if Dict[key] != None])
     else:
         print '\n'.join(["%s %s " % (magic_string(str(key)),str(Dict[key])) for key in sorted([i for i in Dict]) if Dict[key] != None])
@@ -278,7 +278,7 @@ def EnergyDecomposition(Sim, verbose=False):
 def MTSVVVRIntegrator(temperature, collision_rate, timestep, system, ninnersteps=4):
     """
     Create a multiple timestep velocity verlet with velocity randomization (VVVR) integrator.
-    
+
     ARGUMENTS
 
     temperature (numpy.unit.Quantity compatible with kelvin) - the temperature
@@ -292,21 +292,21 @@ def MTSVVVRIntegrator(temperature, collision_rate, timestep, system, ninnersteps
     integrator (openmm.CustomIntegrator) - a VVVR integrator
 
     NOTES
-    
+
     This integrator is equivalent to a Langevin integrator in the velocity Verlet discretization with a
     timestep correction to ensure that the field-free diffusion constant is timestep invariant.  The inner
     velocity Verlet discretization is transformed into a multiple timestep algorithm.
 
     REFERENCES
 
-    VVVR Langevin integrator: 
+    VVVR Langevin integrator:
     * http://arxiv.org/abs/1301.3800
-    * http://arxiv.org/abs/1107.2967 (to appear in PRX 2013)    
-    
+    * http://arxiv.org/abs/1107.2967 (to appear in PRX 2013)
+
     TODO
 
     Move initialization of 'sigma' to setting the per-particle variables.
-    
+
     """
     # Multiple timestep Langevin integrator.
     for i in system.getForces():
@@ -321,14 +321,14 @@ def MTSVVVRIntegrator(temperature, collision_rate, timestep, system, ninnersteps
 
     kB = BOLTZMANN_CONSTANT_kB * AVOGADRO_CONSTANT_NA
     kT = kB * temperature
-    
+
     integrator = openmm.CustomIntegrator(timestep)
-    
+
     integrator.addGlobalVariable("dt_fast", timestep/float(ninnersteps)) # fast inner timestep
     integrator.addGlobalVariable("kT", kT) # thermal energy
     integrator.addGlobalVariable("a", numpy.exp(-collision_rate*timestep)) # velocity mixing parameter
     integrator.addGlobalVariable("b", numpy.sqrt((2/(collision_rate*timestep)) * numpy.tanh(collision_rate*timestep/2))) # timestep correction parameter
-    integrator.addPerDofVariable("sigma", 0) 
+    integrator.addPerDofVariable("sigma", 0)
     integrator.addPerDofVariable("x1", 0) # position before application of constraints
 
     #
@@ -338,23 +338,23 @@ def MTSVVVRIntegrator(temperature, collision_rate, timestep, system, ninnersteps
     #
     integrator.addComputePerDof("sigma", "sqrt(kT/m)")
 
-    # 
+    #
     # Velocity perturbation.
     #
     integrator.addComputePerDof("v", "sqrt(a)*v + sqrt(1-a)*sigma*gaussian")
     integrator.addConstrainVelocities();
-    
+
     #
     # Symplectic inner multiple timestep.
     #
-    integrator.addUpdateContextState(); 
+    integrator.addUpdateContextState();
     integrator.addComputePerDof("v", "v + 0.5*b*dt*f1/m")
     for innerstep in range(ninnersteps):
         # Fast inner symplectic timestep.
         integrator.addComputePerDof("v", "v + 0.5*b*dt_fast*f0/m")
         integrator.addComputePerDof("x", "x + v*b*dt_fast")
         integrator.addComputePerDof("x1", "x")
-        integrator.addConstrainPositions();        
+        integrator.addConstrainPositions();
         integrator.addComputePerDof("v", "v + 0.5*b*dt_fast*f0/m + (x-x1)/dt_fast")
     integrator.addComputePerDof("v", "v + 0.5*b*dt*f1/m") # TODO: Additional velocity constraint correction?
     integrator.addConstrainVelocities();
@@ -377,6 +377,7 @@ def bak(fnm):
             i += 1
         logger.info("Backing up %s -> %s" % (oldfnm, fnm))
         shutil.move(oldfnm,fnm)
+
 
 #================================#
 #     The input file parser      #
@@ -422,7 +423,7 @@ class SimulationOptions(object):
     def force_active(self,key,val=None,msg=None):
         """ Force an option to be active and set it to the provided value,
         regardless of the user input.  There are no safeguards, so use carefully.
-        
+
         key     : The name of the option.
         val     : The value that the option is being set to.
         msg     : A warning that is printed out if the option is not activated.
@@ -443,7 +444,7 @@ class SimulationOptions(object):
         elif val == None:
             self.ForcedOptions[key] = self.ActiveOptions[key]
             self.ForcedWarnings[key] = msg + " (Warning: Forced active but it was already active.)"
-                
+
     def deactivate(self,key,msg=None):
         """ Deactivate one option.  The arguments are:
         key     : The name of the option.
@@ -453,7 +454,7 @@ class SimulationOptions(object):
             self.InactiveOptions[key] = self.ActiveOptions[key]
             del self.ActiveOptions[key]
         self.InactiveWarnings[key] = msg
-        
+
     def __getattr__(self,key):
         if key in self.ActiveOptions:
             return self.ActiveOptions[key]
@@ -537,7 +538,7 @@ class SimulationOptions(object):
             out.append("#===========================================#")
             out += Unrecognized
         return out
-        
+
     def __init__(self, input_file, pdbfnm):
         super(SimulationOptions,self).__init__()
         basename = os.path.splitext(pdbfnm)[0]
@@ -596,9 +597,9 @@ class SimulationOptions(object):
         self.set_active('ewald_error_tolerance',0.0,float,"Error tolerance for Ewald and PME methods.  Don't go below 5e-5 for PME unless running in double precision.",
                         depend=(self.nonbonded_method_obj in [Ewald, PME]), msg="Nonbonded method must be set to Ewald or PME.")
         self.set_active('platform',"CUDA",str,"The simulation platform.", allowed=["Reference","CUDA","OpenCL"])
-        self.set_active('cuda_precision','single',str,"The precision of the CUDA platform.", allowed=["single","mixed","double"], 
+        self.set_active('cuda_precision','single',str,"The precision of the CUDA platform.", allowed=["single","mixed","double"],
                         depend=(self.platform == "CUDA"), msg="The simulation platform needs to be set to CUDA")
-        self.set_active('device',None,int,"Specify the device (GPU) number; will default to the fastest available.", depend=(self.platform in ["CUDA", "OpenCL"]), 
+        self.set_active('device',None,int,"Specify the device (GPU) number; will default to the fastest available.", depend=(self.platform in ["CUDA", "OpenCL"]),
                         msg="The simulation platform needs to be set to CUDA or OpenCL")
         self.set_active('initial_report',False,bool,"Perform one Report prior to running any dynamics.")
         self.set_active('constraints',None,str,"Specify constraints.", allowed=[None,"HBonds","AllBonds","HAngles"])
@@ -628,6 +629,9 @@ class SimulationOptions(object):
         self.set_active('tinkerpath',None,str,"Specify a path for TINKER executables for running AMOEBA validation.")
         if self.tinkerpath != None:
             assert os.path.exists(os.path.join(self.tinkerpath,'dynamic')), "tinkerpath must point to a directory that contains TINKER executables."
+        self.set_active('pos_res_k',1e5,float,"Set the force constant for the positional restraints.")
+        self.set_active('pos_res_atoms',None,tuple,"Set the indices of the atoms that will be restrained to their original position.", depend=(self.pos_res_k > 0),msg="Restrain force constants k must > 0")
+
 
 #================================#
 #    The command line parser     #
@@ -688,7 +692,7 @@ class ProgressReport(object):
         self._first = first
         self.run_time = 0.0*picosecond
         self.t0 = time.time()
-    
+
     def describeNextReport(self, simulation):
         steps = self._reportInterval - simulation.currentStep%self._reportInterval
         return (steps, False, False, False, True)
@@ -712,8 +716,8 @@ class ProgressReport(object):
             # Compute the driftless standard deviation.
             stdev1 = np.std(data-p)
             PrintDict[datatype+" (%s)" % self._units[datatype]] = "%13.5f %13.5e %13.5f %13.5f %13.5f %13.5e" % (mean, stdev, stderr, acorr, drift, stdev1)
-        printcool_dictionary(PrintDict,"Summary statistics - total simulation time %.3f ps:\n%-26s %13s %13s %13s %13s %13s %13s\n%-26s %13s %13s %13s %13s %13s %13s" % (self.run_time/picosecond, 
-                                                                                                                                                                          "", "", "", "", "", "", "Stdev", 
+        printcool_dictionary(PrintDict,"Summary statistics - total simulation time %.3f ps:\n%-26s %13s %13s %13s %13s %13s %13s\n%-26s %13s %13s %13s %13s %13s %13s" % (self.run_time/picosecond,
+                                                                                                                                                                          "", "", "", "", "", "", "Stdev",
                                                                                                                                                                           "Quantity", "Mean", "Stdev", "Stderr", "Acorr(ps)", "Drift", "(NoDrift)"),keywidth=30)
     def report(self, simulation, state):
         # Compute total mass in grams.
@@ -750,7 +754,7 @@ class ProgressReport(object):
         self._data['potential'].append(potential)
         self._data['temperature'].append(temperature)
         self._initial = False
-    
+
     def __del__(self):
         if self._openedFile:
             self._out.close()
@@ -766,7 +770,7 @@ class EnergyReporter(object):
             self._out = file
         # The time step at the creation of this report.
         self._first = first
-    
+
     def describeNextReport(self, simulation):
         steps = self._reportInterval - simulation.currentStep%self._reportInterval
         return (steps, False, False, False, False)
@@ -778,7 +782,7 @@ class EnergyReporter(object):
             print >> self._out, ' '.join(["%25s" % i for i in ['#Time(ps)'] + self.eda.keys()])
         print >> self._out, ' '.join(["%25.10f" % i for i in [self.run_time/picosecond] + self.eda.values()])
         self._initial = False
-    
+
     def __del__(self):
         if self._openedFile:
             self._out.close()
@@ -789,7 +793,7 @@ class RestartReporter(object):
         self._file = file
         self._integrator = integrator
         self._timestep = timestep
-    
+
     def describeNextReport(self, simulation):
         steps = self._reportInterval - simulation.currentStep%self._reportInterval
         return (steps, False, False, False, False)
@@ -876,7 +880,7 @@ if Deserialize:
                     logger.info("Setting mutual polarization with tolerance % .2e" % args.polar_eps)
                     f.setPolarizationType(0)
                     f.setMutualInducedTargetEpsilon(args.polar_eps)
-                else: 
+                else:
                     args.deactivate('polarization_direct', "Loaded from System XML file because not explicitly specified")
                     args.deactivate('polar_eps', "Loaded from System XML file because not explicitly specified")
         args.deactivate('vdw_cutoff', "Specified by the System XML file")
@@ -907,7 +911,7 @@ else:
         if pbc:
             logger.info("Periodic AMOEBA system uses PME regardless of user-supplied options.")
             args.force_active('nonbonded_method',"PME","PME enforced for periodic AMOEBA system.")
-            settings += [('nonbondedMethod', PME), ('nonbondedCutoff', args.nonbonded_cutoff * nanometer), 
+            settings += [('nonbondedMethod', PME), ('nonbondedCutoff', args.nonbonded_cutoff * nanometer),
                          ('vdwCutoff', args.vdw_cutoff), ('useDispersionCorrection', args.dispersion_correction)]
             if 'pmegrid' in args.UserOptions and 'aewald' in args.UserOptions:
                 settings.append(('pmeGridDimensions', args.pmegrid))
@@ -942,7 +946,7 @@ else:
     else:
         logger.info("Detected non-AMOEBA system")
         if pbc:
-            settings = [('constraints', args.constraints), ('rigidWater', args.rigidwater), ('nonbondedMethod', args.nonbonded_method_obj), 
+            settings = [('constraints', args.constraints), ('rigidWater', args.rigidwater), ('nonbondedMethod', args.nonbonded_method_obj),
                         ('nonbondedCutoff', args.nonbonded_cutoff * nanometer), ('useDispersionCorrection', True)]
             if (args.nonbonded_method_obj in [Ewald, PME]) and ('ewald_error_tolerance' in args.UserOptions):
                 settings += [('ewaldErrorTolerance', args.ewald_error_tolerance)]
@@ -969,6 +973,25 @@ else:
     modeller = Modeller(pdb.topology, pdb.positions)
     modeller.addExtraParticles(forcefield)
     system = forcefield.createSystem(modeller.topology, **dict(settings))
+
+    #====================================#
+    #| Add positional restraints        |#
+    #====================================#
+    # Create external force
+    ex_force = openmm.CustomExternalForce("k*periodicdistance(x, y, z, x0, y0, z0)^2")
+    ex_force.addGlobalParameter('k', args.pos_res_k)
+    ex_force.addPerParticleParameter('x0')
+    ex_force.addPerParticleParameter('y0')
+    ex_force.addPerParticleParameter('z0')
+    # Add force for each atom using there position
+    for atom_idx in args.pos_res_atoms:
+        ex_force.addParticle(atom_idx-1, pdb.positions[atom_idx-1])
+    system.addForce(ex_force)
+
+
+
+
+
 
 #====================================#
 #| Temperature and pressure control |#
@@ -1206,7 +1229,7 @@ else:
         eda = EnergyDecomposition(simulation)
         eda_kcal = OrderedDict([(i, "%10.4f" % (j/4.184)) for i, j in eda.items()])
         printcool_dictionary(eda_kcal, title="Energy Decomposition (kcal/mol)")
-    
+
     # Minimize the energy.
     if args.minimize:
         print "Minimization start, the energy is:", simulation.context.getState(getEnergy=True).getPotentialEnergy()
