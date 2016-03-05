@@ -1022,7 +1022,7 @@ else:
     ex_force.addPerParticleParameter('z0')
     # Add force for each atom using there position
     for atom_idx in uncommadash(args.pos_res_atoms):
-        ex_force.addParticle(atom_idx-1, pdb.positions[atom_idx-1])
+        ex_force.addParticle(atom_idx, pdb.positions[atom_idx])
     system.addForce(ex_force)
 
 
