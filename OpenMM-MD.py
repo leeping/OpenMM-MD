@@ -668,7 +668,12 @@ class SimulationOptions(object):
             assert os.path.exists(os.path.join(self.tinkerpath,'dynamic')), "tinkerpath must point to a directory that contains TINKER executables."
         self.set_active('pos_res_k',1e5,float,"Set the force constant for the positional restraints.")
         self.set_active('pos_res_atoms',None,str,"Set the indices of the atoms that will be restrained to their original position.", depend=(self.pos_res_k > 0),msg="Restrain force constants k must > 0")
-
+        self.set_active('cent_res_k',1e5,float,"Set the force constant for the positional restraints.")
+        self.set_active('cent_res_atoms',None,str,"Set the indices of the atoms whose center will be restrained to their original position.", depend=(self.cent_res_k > 0),msg="Restrain force constants k must > 0")
+        self.set_active('remove_cm_motion',True,bool,"Remove Center of Mass Motion every Step.")
+        self.set_active('group1',None,str,"Set the indices of the atoms in Group 1")
+        self.set_active('group2',None,str,"Set the indices of the atoms in Group 2")
+        self.set_active('f_betw_groups',1.0,float,"Force between Group 1 and Group 2", depend=(self.group1 and self.group2),msg="group1 and group2 must be specified!")
 
 #================================#
 #    The command line parser     #
@@ -1005,6 +1010,8 @@ else:
         args.deactivate("aewald",msg="Not simulating an AMOEBA system")
         args.deactivate("pmegrid",msg="Not simulating an AMOEBA system")
         args.deactivate("tinkerpath",msg="Not simulating an AMOEBA system")
+    # Provide Option to disable the CM Motion
+    settings += [('removeCMMotion', args.remove_cm_motion)]
     logger.info("Now setting up the System with the following system settings:")
     printcool_dictionary(dict(settings),title="OpenMM system object will be set up\n using these options:")
     modeller = Modeller(pdb.topology, pdb.positions)
@@ -1014,19 +1021,57 @@ else:
     #====================================#
     #| Add positional restraints        |#
     #====================================#
-    # Create external force
-    ex_force = openmm.CustomExternalForce("k*periodicdistance(x, y, z, x0, y0, z0)^2")
-    ex_force.addGlobalParameter('k', args.pos_res_k)
-    ex_force.addPerParticleParameter('x0')
-    ex_force.addPerParticleParameter('y0')
-    ex_force.addPerParticleParameter('z0')
-    # Add force for each atom using there position
-    for atom_idx in uncommadash(args.pos_res_atoms):
-        ex_force.addParticle(atom_idx, pdb.positions[atom_idx])
-    system.addForce(ex_force)
+    if args.pos_res_atoms:
+        # Create external force
+        ex_force = openmm.CustomExternalForce("k*periodicdistance(x, y, z, x0, y0, z0)^2")
+        ex_force.addGlobalParameter('k', args.pos_res_k)
+        ex_force.addPerParticleParameter('x0')
+        ex_force.addPerParticleParameter('y0')
+        ex_force.addPerParticleParameter('z0')
+        # Set x0,y0,z0 for each atom using there position
+        for atom_idx in uncommadash(args.pos_res_atoms):
+            ex_force.addParticle(atom_idx, pdb.positions[atom_idx])
+        # Add force to system
+        system.addForce(ex_force)
 
+    #====================================#
+    #| Add centroid restraints        |#
+    #====================================#
+    if args.cent_res_atoms:
+        cent_force = openmm.CustomCentroidBondForce(1, "k*((x1-x0)^2 + (y1-y0)^2 + (z1-z0)^2)")
+        particles = uncommadash(args.cent_res_atoms)
+        cent_force.addPerBondParameter('k')
+        g1 = cent_force.addGroup(particles)
+        x0, y0, z0 = np.average([pdb.positions[i] for i in particles] , axis=0)
+        cent_force.addPerBondParameter('x0')
+        cent_force.addPerBondParameter('y0')
+        cent_force.addPerBondParameter('z0')
+        cent_force.addBond([g1], [args.cent_res_k, x0,y0,z0])
+        system.addForce(cent_force)
 
+    #====================================#
+    #| Use Periodic Bonded Forces       |#
+    #====================================#
+    if pbc:
+        for f in system.getForces():
+            try:
+                f.setUsesPeriodicBoundaryConditions(True)
+            except:
+                pass
 
+    #===========================================#
+    #| Add CentroidForce Between Two Groups    |#
+    #===========================================#
+    if args.f_betw_groups:
+        print("Adding Force %f Between Groups %s and %s"%(args.f_betw_groups,args.group1,args.group2))
+        cent_force = openmm.CustomCentroidBondForce(2, "k*distance(g1,g2)")
+        particles1 = uncommadash(args.group1)
+        particles2 = uncommadash(args.group2)
+        cent_force.addPerBondParameter('k')
+        g1 = cent_force.addGroup(particles1)
+        g2 = cent_force.addGroup(particles2)
+        cent_force.addBond([g1,g2],[args.f_betw_groups])
+        system.addForce(cent_force)
 
 
 
