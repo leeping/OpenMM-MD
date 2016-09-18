@@ -672,8 +672,7 @@ class SimulationOptions(object):
         self.set_active('cent_res_atoms',None,str,"Set the indices of the atoms whose center will be restrained to their original position.", depend=(self.cent_res_k > 0),msg="Restrain force constants k must > 0")
         self.set_active('remove_cm_motion',True,bool,"Remove Center of Mass Motion every Step.")
         self.set_active('group1',None,str,"Set the indices of the atoms in Group 1")
-        self.set_active('group2',None,str,"Set the indices of the atoms in Group 2")
-        self.set_active('f_betw_groups',1.0,float,"Force between Group 1 and Group 2", depend=(self.group1 and self.group2),msg="group1 and group2 must be specified!")
+        self.set_active('f_betw_groups',1.0,float,"Force between Group 1 and Group 2", depend=self.group1, msg="group1 and group2 must be specified!")
 
 #================================#
 #    The command line parser     #
@@ -1063,14 +1062,12 @@ else:
     #| Add CentroidForce Between Two Groups    |#
     #===========================================#
     if args.f_betw_groups:
-        print("Adding Force %f Between Groups %s and %s"%(args.f_betw_groups,args.group1,args.group2))
-        cent_force = openmm.CustomCentroidBondForce(2, "k*distance(g1,g2)")
+        print("Adding Force %f on Group %s"%(args.f_betw_groups,args.group1))
+        cent_force = openmm.CustomCentroidBondForce(1, "-k*z1")
         particles1 = uncommadash(args.group1)
-        particles2 = uncommadash(args.group2)
         cent_force.addPerBondParameter('k')
         g1 = cent_force.addGroup(particles1)
-        g2 = cent_force.addGroup(particles2)
-        cent_force.addBond([g1,g2],[args.f_betw_groups])
+        cent_force.addBond([g1],[args.f_betw_groups])
         system.addForce(cent_force)
 
 
