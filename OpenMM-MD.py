@@ -668,11 +668,13 @@ class SimulationOptions(object):
             assert os.path.exists(os.path.join(self.tinkerpath,'dynamic')), "tinkerpath must point to a directory that contains TINKER executables."
         self.set_active('pos_res_k',1e5,float,"Set the force constant for the positional restraints.")
         self.set_active('pos_res_atoms',None,str,"Set the indices of the atoms that will be restrained to their original position.", depend=(self.pos_res_k > 0),msg="Restrain force constants k must > 0")
-        self.set_active('cent_res_k',1e5,float,"Set the force constant for the positional restraints.")
-        self.set_active('cent_res_atoms',None,str,"Set the indices of the atoms whose center will be restrained to their original position.", depend=(self.cent_res_k > 0),msg="Restrain force constants k must > 0")
+        self.set_active('cent_res_k_per_atom',1e5,float,"Set the force constant for the centroid restraints.")
+        self.set_active('cent_res_atoms',None,str,"Set the indices of the atoms whose center will be restrained to their original position.", depend=(self.cent_res_k_per_atom > 0),msg="Restrain force constants k must > 0")
         self.set_active('remove_cm_motion',True,bool,"Remove Center of Mass Motion every Step.")
-        self.set_active('group1',None,str,"Set the indices of the atoms in Group 1")
-        self.set_active('f_betw_groups',1.0,float,"Force between Group 1 and Group 2", depend=self.group1, msg="group1 and group2 must be specified!")
+        self.set_active('group_up_pressure',1.0,float,"Pressue on the group of atoms along z direction. Unit: bar")
+        self.set_active('group_up_atoms',None,str,"Set the indices of the atoms in Group to be pushed upwards.", depend=(self.group_up_pressure>0), msg="Group Up Pressure must > 0")
+        self.set_active('group_down_pressure',1.0,float,"Pressue on the group of atoms along -z direction. Unit: bar")
+        self.set_active('group_down_atoms',None,str,"Set the indices of the atoms in Group to be pushed downwards.", depend=(self.group_down_pressure>0), msg="Group Down Pressure must > 0")
 
 #================================#
 #    The command line parser     #
@@ -1045,7 +1047,7 @@ else:
         cent_force.addPerBondParameter('x0')
         cent_force.addPerBondParameter('y0')
         cent_force.addPerBondParameter('z0')
-        cent_force.addBond([g1], [args.cent_res_k, x0,y0,z0])
+        cent_force.addBond([g1], [args.cent_res_k_per_atom*len(particles), x0,y0,z0])
         system.addForce(cent_force)
 
     #====================================#
@@ -1059,15 +1061,31 @@ else:
                 pass
 
     #===========================================#
-    #| Add CentroidForce Between Two Groups    |#
+    #| Add Up and Down pressure                |#
     #===========================================#
-    if args.f_betw_groups:
-        print("Adding Force %f on Group %s"%(args.f_betw_groups,args.group1))
+    if args.group_up_atoms:
+        logger.info("Adding upward pressure %f bar on Group %s"%(args.group_up_pressure,args.group_up_atoms))
         cent_force = openmm.CustomCentroidBondForce(1, "-k*z1")
-        particles1 = uncommadash(args.group1)
+        particles1 = uncommadash(args.group_up_atoms)
+        # convert the pressure into force on each particle
+        box_x, box_y, box_z = pdb.getTopology().getUnitCellDimensions()
+        area_xy = box_x * box_y
+        force_on_group = (args.group_up_pressure * bar * area_xy * AVOGADRO_CONSTANT_NA).in_units_of(kilojoule_per_mole / nanometer)
         cent_force.addPerBondParameter('k')
         g1 = cent_force.addGroup(particles1)
-        cent_force.addBond([g1],[args.f_betw_groups])
+        cent_force.addBond([g1],[force_on_group])
+        system.addForce(cent_force)
+    if args.group_down_atoms:
+        logger.info("Adding downward pressure %f bar on Group %s"%(args.group_down_pressure,args.group_down_atoms))
+        cent_force = openmm.CustomCentroidBondForce(1, "k*z1")
+        particles1 = uncommadash(args.group_down_atoms)
+        # convert the pressure into force on each particle
+        box_x, box_y, box_z = pdb.getTopology().getUnitCellDimensions()
+        area_xy = box_x * box_y
+        force_on_group = (args.group_down_pressure * bar * area_xy * AVOGADRO_CONSTANT_NA).in_units_of(kilojoule_per_mole / nanometer)
+        cent_force.addPerBondParameter('k')
+        g1 = cent_force.addGroup(particles1)
+        cent_force.addBond([g1],[force_on_group])
         system.addForce(cent_force)
 
 
