@@ -51,6 +51,8 @@ warnings.simplefilter("ignore")
 import logging
 logging.basicConfig()
 
+
+sys.setrecursionlimit(10000)
 #================================#
 #       Set up the logger        #
 #================================#
