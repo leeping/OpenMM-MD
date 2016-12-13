@@ -447,6 +447,8 @@ class SimulationOptions(object):
         if val != None and type(val) is not typ:
             if type(val) in [tuple, list] and typ is str:
                 val = ','.join([str(v) for v in val])
+            elif type(val) in [int, float] and typ is str:
+                val = str(val)
             else:
                 raise Exception("Tried to set option \x1b[1;91m%s\x1b[0m to \x1b[94m%s\x1b[0m but it's not the right type (%s required)" % (key, str(val), str(typ)))
         if depend and not clash:
