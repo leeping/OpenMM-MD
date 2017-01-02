@@ -1017,11 +1017,32 @@ else:
         args.deactivate("tinkerpath",msg="Not simulating an AMOEBA system")
     # Provide Option to disable the CM Motion
     settings += [('removeCMMotion', args.remove_cm_motion)]
+    # convert settings to dictionary
+    settings = dict(settings)
+    mixed_nonbondedMethod = False
+    # CustomNonbondedForce does not support PME, so nonbondedMethod will be set after createSystem()
+    if pbc:
+        if any(['CustomNonbonded' in f.__class__.__name__ for f in forcefield._forces]):
+            if settings['nonbondedMethod'] == PME:
+                # remove this setting temporarily
+                settings.pop('nonbondedMethod')
+                mixed_nonbondedMethod = True
+                logger.info("CustomNonbondedForce Detected with PME specified. nonbondedMethod will be set individually.")
+
     logger.info("Now setting up the System with the following system settings:")
     printcool_dictionary(dict(settings),title="OpenMM system object will be set up\n using these options:")
     modeller = Modeller(pdb.topology, pdb.positions)
     modeller.addExtraParticles(forcefield)
     system = forcefield.createSystem(modeller.topology, **dict(settings))
+    # set the nonbondedMethod one by one if we need mixed settings
+    if mixed_nonbondedMethod:
+        for f in system.getForces():
+            if hasattr(f.__class__, 'PME'):
+                f.setNonbondedMethod(f.__class__.PME)
+                logger.info("nonbondedMethod for %s has been set to PME" % f.__class__.__name__)
+            elif hasattr(f.__class__, 'CutoffPeriodic'):
+                f.setNonbondedMethod(f.__class__.CutoffPeriodic)
+                logger.info("nonbondedMethod for %s has been set to CutoffPeriodic" % f.__class__.__name__)
 
     #====================================#
     #| Add positional restraints        |#
