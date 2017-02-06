@@ -195,6 +195,18 @@ def compute_mass(system):
         mass += system.getParticleMass(i)
     return mass
 
+def compute_total_charge(system):
+    """ Compute the total charge of an OpenMM system with the NonbondedForce or AmoebaMultipoleForce """
+    total_charge = 0.0 * elementary_charge
+    for f in system.getForces():
+        if f.__class__.__name__ == 'AmoebaMultipoleForce':
+            for i in range(system.getNumParticles()):
+                total_charge += f.getMultipoleParameters(i)[0]
+        if f.__class__.__name__ == 'NonbondedForce':
+            for i in range(system.getNumParticles()):
+                total_charge += f.getParticleParameters(i)[0]
+    return total_charge
+
 def printcool(text,sym="#",bold=False,color=2,ansi=None,bottom='-',minwidth=50):
     """Cool-looking printout for slick formatting of output.
 
@@ -674,6 +686,7 @@ class SimulationOptions(object):
         self.set_active('pos_res_atoms',None,str,"Set the indices of the atoms that will be restrained to their original position.", depend=(self.pos_res_k > 0),msg="Restrain force constants k must > 0")
         self.set_active('cent_res_k_per_atom',1e5,float,"Set the force constant for the centroid restraints.")
         self.set_active('cent_res_atoms',None,str,"Set the indices of the atoms whose center will be restrained to their original position.", depend=(self.cent_res_k_per_atom > 0),msg="Restrain force constants k must > 0")
+        self.set_active('cent_res_atoms2',None,str,"Set the indices of the atoms whose center will be restrained to their original position.", depend=(self.cent_res_k_per_atom > 0),msg="Restrain force constants k must > 0")
         self.set_active('remove_cm_motion',True,bool,"Remove Center of Mass Motion every Step.")
         self.set_active('group_up_pressure',1.0,float,"Pressue on the group of atoms along z direction. Unit: bar")
         self.set_active('group_up_atoms',None,str,"Set the indices of the atoms in Group to be pushed upwards.", depend=(self.group_up_pressure>0), msg="Group Up Pressure must > 0")
@@ -1074,6 +1087,17 @@ else:
         cent_force.addPerBondParameter('z0')
         cent_force.addBond([g1], [args.cent_res_k_per_atom*len(particles), x0,y0,z0])
         system.addForce(cent_force)
+    if args.cent_res_atoms2:
+        cent_force = openmm.CustomCentroidBondForce(1, "k*((x1-x0)^2 + (y1-y0)^2 + (z1-z0)^2)")
+        particles = uncommadash(args.cent_res_atoms2)
+        cent_force.addPerBondParameter('k')
+        g1 = cent_force.addGroup(particles)
+        x0, y0, z0 = np.average([pdb.positions[i] for i in particles] , axis=0)
+        cent_force.addPerBondParameter('x0')
+        cent_force.addPerBondParameter('y0')
+        cent_force.addPerBondParameter('z0')
+        cent_force.addBond([g1], [args.cent_res_k_per_atom*len(particles), x0,y0,z0])
+        system.addForce(cent_force)
 
     #====================================#
     #| Use Periodic Bonded Forces       |#
@@ -1284,6 +1308,7 @@ logger.info("--== System Information ==--")
 logger.info("Number of particles   : %i" % simulation.context.getSystem().getNumParticles())
 logger.info("Number of constraints : %i" % simulation.context.getSystem().getNumConstraints())
 logger.info("Total system mass     : %.2f amu" % (compute_mass(system)/amu))
+logger.info("Total system charge   : %.5f elementary charge" % (compute_total_charge(system)/elementary_charge))
 for f in simulation.context.getSystem().getForces():
     if f.__class__.__name__ == 'AmoebaMultipoleForce':
         logger.info("AMOEBA PME order      : %i" % f.getPmeBSplineOrder())
