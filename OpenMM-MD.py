@@ -692,6 +692,8 @@ class SimulationOptions(object):
         self.set_active('group_up_atoms',None,str,"Set the indices of the atoms in Group to be pushed upwards.", depend=(self.group_up_pressure>0), msg="Group Up Pressure must > 0")
         self.set_active('group_down_pressure',1.0,float,"Pressue on the group of atoms along -z direction. Unit: bar")
         self.set_active('group_down_atoms',None,str,"Set the indices of the atoms in Group to be pushed downwards.", depend=(self.group_down_pressure>0), msg="Group Down Pressure must > 0")
+        self.set_active('block_z_pos',6.0,float,"Set the z position of the block. (nm)")
+        self.set_active('block_z_atoms',None,str,"Set the indices of the atoms that will be blocked from crossing the block_z_pos.")
 
 #================================#
 #    The command line parser     #
@@ -1137,7 +1139,18 @@ else:
         cent_force.addBond([g1],[force_on_group])
         system.addForce(cent_force)
 
-
+    #===========================================#
+    #| Add Force to Block Ions                 |#
+    #===========================================#
+    if args.block_z_atoms:
+        logger.info("Blocking atoms %s from crossing the plane z = %f nm." %(args.block_z_atoms, args.block_z_pos))
+        # a barrier force with height 10000, and width 0.25 nm.
+        ex_force = openmm.CustomExternalForce("10000.0*exp(-100.0*(z-z0)^2)")
+        ex_force.addGlobalParameter('z0', args.block_z_pos)
+        for atom_idx in uncommadash(args.block_z_atoms):
+            ex_force.addParticle(atom_idx)
+        # Add force to system
+        system.addForce(ex_force)
 
 #====================================#
 #| Temperature and pressure control |#
