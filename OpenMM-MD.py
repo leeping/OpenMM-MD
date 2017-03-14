@@ -637,8 +637,8 @@ class SimulationOptions(object):
         self.set_active('pressure',0.0,float,"Simulation pressure; set a positive number to activate.",
                         clash=(self.temperature <= 0.0),
                         msg="For constant pressure simulations, the temperature must be finite")
-        self.set_active('anisotropic',False,bool,"Set to True for anisotropic box scaling in NPT simulations",
-                        depend=("pressure" in self.ActiveOptions and self.pressure > 0.0), msg = "We're not running a constant pressure simulation")
+        self.set_active('anisotropic','None',str,"Specify 'x' and/or 'y' and/or 'z' for anisotropic box scaling in NPT simulations",
+                        depend=("pressure" in self.ActiveOptions and self.pressure > 0.0), msg = "We're not running a constant pressure simulation", allowed=['None','x','y','z','xy','xz','yz','xyz'])
         self.set_active('nbarostat',25,int,"Step interval for MC barostat volume adjustments.",
                         depend=("pressure" in self.ActiveOptions and self.pressure > 0.0), msg = "We're not running a constant pressure simulation")
         self.set_active('nonbonded_method','PME',str,"Set the method for nonbonded interactions.", allowed=["NoCutoff","CutoffNonPeriodic","CutoffPeriodic","Ewald","PME"])
@@ -649,8 +649,10 @@ class SimulationOptions(object):
         self.set_active('dispersion_correction',True,bool,"Isotropic long-range dispersion correction for periodic systems.")
         self.set_active('ewald_error_tolerance',0.0,float,"Error tolerance for Ewald and PME methods.  Don't go below 5e-5 for PME unless running in double precision.",
                         depend=(self.nonbonded_method_obj in [Ewald, PME]), msg="Nonbonded method must be set to Ewald or PME.")
-        self.set_active('platform',"CUDA",str,"The simulation platform.", allowed=["Reference","CUDA","OpenCL"])
-        self.set_active('cuda_precision','single',str,"The precision of the CUDA platform.", allowed=["single","mixed","double"],
+        platformNames = [Platform.getPlatform(i).getName() for i in range(Platform.getNumPlatforms())]
+        default_platform = 'CUDA' if 'CUDA' in platformNames else 'Reference'
+        self.set_active('platform',default_platform,str,"The simulation platform.", allowed=platformNames)
+        self.set_active('precision','mixed',str,"The precision of the CUDA platform.", allowed=["single","mixed","double"],
                         depend=(self.platform == "CUDA"), msg="The simulation platform needs to be set to CUDA")
         self.set_active('device',None,int,"Specify the device (GPU) number; will default to the fastest available.", depend=(self.platform in ["CUDA", "OpenCL"]),
                         msg="The simulation platform needs to be set to CUDA or OpenCL")
@@ -1185,10 +1187,13 @@ def add_barostat():
         elif pbc:
             logger.info("This is a constant pressure (NPT) run at %.2f atm pressure" % args.pressure)
             logger.info("Adding Monte Carlo barostat with volume adjustment interval %i" % args.nbarostat)
-            logger.info("Anisotropic box scaling is %s" % ("ON" if args.anisotropic else "OFF"))
-            if args.anisotropic:
-                logger.info("Only the Z-axis will be adjusted")
-                barostat = MonteCarloAnisotropicBarostat(Vec3(args.pressure*atmospheres, args.pressure*atmospheres, args.pressure*atmospheres), args.temperature*kelvin, False, False, True, args.nbarostat)
+            logger.info("Anisotropic box scaling is %s" % args.anisotropic)
+            if args.anisotropic != 'None':
+                #logger.info("Only the Z-axis will be adjusted")
+                adjust_x = 'x' in args.anisotropic
+                adjust_y = 'y' in args.anisotropic
+                adjust_z = 'z' in args.anisotropic
+                barostat = MonteCarloAnisotropicBarostat(Vec3(args.pressure*atmospheres, args.pressure*atmospheres, args.pressure*atmospheres), args.temperature*kelvin, adjust_x, adjust_y, adjust_z, args.nbarostat)
             else:
                 barostat = MonteCarloBarostat(args.pressure * atmospheres, args.temperature * kelvin, args.nbarostat)
             system.addForce(barostat)
@@ -1258,12 +1263,7 @@ else:
 #==================================#
 # if args.platform != None:
 logger.info("Setting Platform to %s" % str(args.platform))
-try:
-    platform = Platform.getPlatformByName(args.platform)
-except:
-    logger.info("Warning: %s platform not found, going to Reference platform \x1b[91m(slow)\x1b[0m" % args.platform)
-    args.force_active('platform',"Reference","The %s platform was not found." % args.platform)
-    platform = Platform.getPlatformByName("Reference")
+platform = Platform.getPlatformByName(args.platform)
 
 if 'device' in args.ActiveOptions:
     # The device may be set using an environment variable or the input file.
@@ -1282,8 +1282,8 @@ if 'device' in args.ActiveOptions:
         logger.info("Using the default (fastest) device")
 else:
     logger.info("Using the default (fastest) device")
-if "CudaPrecision" in platform.getPropertyNames():
-    platform.setPropertyDefaultValue("CudaPrecision", args.cuda_precision)
+if args.platform == 'CUDA':
+    platform.setPropertyDefaultValue("Precision", args.precision)
 # else:
 #     logger.info("Using the default Platform")
 
