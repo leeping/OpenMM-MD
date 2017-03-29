@@ -689,6 +689,7 @@ class SimulationOptions(object):
         self.set_active('cent_res_k_per_atom',1e5,float,"Set the force constant for the centroid restraints.")
         self.set_active('cent_res_atoms',None,str,"Set the indices of the atoms whose center will be restrained to their original position.", depend=(self.cent_res_k_per_atom > 0),msg="Restrain force constants k must > 0")
         self.set_active('cent_res_atoms2',None,str,"Set the indices of the atoms whose center will be restrained to their original position.", depend=(self.cent_res_k_per_atom > 0),msg="Restrain force constants k must > 0")
+        self.set_active('cent_res_xy_atoms',None,str,"Set the indices of the atoms whose center on the x and y direction will be restrained to their original position.", depend=(self.cent_res_k_per_atom > 0),msg="Restrain force constants k must > 0")
         self.set_active('remove_cm_motion',True,bool,"Remove Center of Mass Motion every Step.")
         self.set_active('group_up_pressure',1.0,float,"Pressue on the group of atoms along z direction. Unit: bar")
         self.set_active('group_up_atoms',None,str,"Set the indices of the atoms in Group to be pushed upwards.", depend=(self.group_up_pressure>0), msg="Group Up Pressure must > 0")
@@ -1101,6 +1102,16 @@ else:
         cent_force.addPerBondParameter('y0')
         cent_force.addPerBondParameter('z0')
         cent_force.addBond([g1], [args.cent_res_k_per_atom*len(particles), x0,y0,z0])
+        system.addForce(cent_force)
+    if args.cent_res_xy_atoms:
+        cent_force = openmm.CustomCentroidBondForce(1, "k*((x1-x0)^2 + (y1-y0)^2)")
+        particles = uncommadash(args.cent_res_xy_atoms)
+        cent_force.addPerBondParameter('k')
+        g1 = cent_force.addGroup(particles)
+        x0, y0, z0 = np.average([pdb.positions[i] for i in particles] , axis=0)
+        cent_force.addPerBondParameter('x0')
+        cent_force.addPerBondParameter('y0')
+        cent_force.addBond([g1], [args.cent_res_k_per_atom*len(particles), x0,y0])
         system.addForce(cent_force)
 
     #====================================#
