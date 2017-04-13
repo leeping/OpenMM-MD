@@ -872,14 +872,17 @@ class RestartReporter(object):
             v0 = Vfin * nanometer / picosecond
             frc = simulation.context.getState(getForces=True).getForces()
             # Obtain masses.
-            mass = []
+            rev_mass = []
             for i in range(simulation.context.getSystem().getNumParticles()):
-                mass.append(simulation.context.getSystem().getParticleMass(i)/dalton)
-            mass *= dalton
+                mass = simulation.context.getSystem().getParticleMass(i)/dalton
+                r_mass = 1.0/mass if mass > 0 else 0
+                rev_mass.append(r_mass)
+            rev_mass /= dalton
+            
             # Get accelerations.
             accel = []
             for i in range(simulation.context.getSystem().getNumParticles()):
-                accel.append(frc[i] / mass[i] / (kilojoule/(nanometer*mole*dalton)))# / (kilojoule/(nanometer*mole*dalton)))
+                accel.append(frc[i] * rev_mass[i] / (kilojoule/(nanometer*mole*dalton)))# / (kilojoule/(nanometer*mole*dalton)))
             accel *= kilojoule/(nanometer*mole*dalton)
             # Propagate velocities backward by half a time step.
             dv = femtosecond * accel
