@@ -993,16 +993,17 @@ else:
     #| Add positional restraints        |#
     #====================================#
     # Create external force
-    ex_force = openmm.CustomExternalForce("k*periodicdistance(x, y, z, x0, y0, z0)^2")
-    ex_force.addGlobalParameter('k', args.pos_res_k)
-    ex_force.addPerParticleParameter('x0')
-    ex_force.addPerParticleParameter('y0')
-    ex_force.addPerParticleParameter('z0')
-    # Add force for each atom using there position
-    for atom_idx in args.pos_res_atoms:
-        ex_force.addParticle(atom_idx-1, pdb.positions[atom_idx-1])
-    system.addForce(ex_force)
-
+    if args.pos_res_atoms is not None:
+        ex_force = openmm.CustomExternalForce("k*periodicdistance(x, y, z, x0, y0, z0)^2")
+        ex_force.addGlobalParameter('k', args.pos_res_k)
+        ex_force.addPerParticleParameter('x0')
+        ex_force.addPerParticleParameter('y0')
+        ex_force.addPerParticleParameter('z0')
+        # Add force for each atom using there position
+        for atom_idx in args.pos_res_atoms:
+            ex_force.addParticle(atom_idx-1, pdb.positions[atom_idx-1])
+        system.addForce(ex_force)
+    
 
 
 
