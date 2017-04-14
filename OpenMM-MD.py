@@ -565,6 +565,7 @@ class SimulationOptions(object):
         self.set_active('integrator','verlet',str,"Molecular dynamics integrator",allowed=["verlet","langevin","velocity-verlet","mtsvvvr"])
         self.set_active('minimize',False,bool,"Specify whether to minimize the energy before running dynamics.")
         self.set_active('timestep',1.0,float,"Time step in femtoseconds.")
+        self.set_active('hydrogen_mass',1.0,float,"Hydrogen mass in amu (set to 4 to enable 4 fs time step).")
         self.set_active('innerstep',0.5,float,"Inner time step in femtoseconds for MTS integrator.",depend=(self.integrator=="mtsvvvr"))
         self.set_active('restart_filename','restart.p',str,"Restart information will be read from / written to this file (will be backed up).")
         self.set_active('read_restart',True,bool,"Restart simulation from the restart file.",
@@ -687,6 +688,7 @@ class ProgressReport(object):
         # The time step at the creation of this report.
         self._first = first
         self.run_time = 0.0*picosecond
+        self.rt00 = 0.0*picosecond
         self.t0 = time.time()
     
     def describeNextReport(self, simulation):
@@ -732,13 +734,23 @@ class ProgressReport(object):
             timeleft = (time.time()-self.t0)*(100.0 - pct)/pct
         else:
             timeleft = 0.0
+
+        # Simulation speed is calculated over a single progress report window
+        if self.t00 is None:
+            nsday = 0.0
+        else:
+            days = (time.time()-self.t00)/86400
+            nsday = (self.run_time - self.rt00) / nanoseconds / days
+        self.t00 = time.time()
+        self.rt00 = self.run_time
+
         if simulation.topology.getUnitCellDimensions() != None :
             box_vectors = state.getPeriodicBoxVectors()
             volume = compute_volume(box_vectors) / self._units['volume']
             density = (mass / compute_volume(box_vectors)) / self._units['density']
             if self._initial:
-                logger.info("%8s %17s %13s %13s %13s %13s %13s %13s %13s" % ('Progress', 'E.T.A', 'Time(ps)', 'Temp(K)', 'Kin(kJ)', 'Pot(kJ)', 'Ene(kJ)', 'Vol(nm3)', 'Rho(kg/m3)'))
-            logger.info("%7.3f%% %17s %13.5f %13.5f %13.5f %13.5f %13.5f %13.5f %13.5f" % (pct, GetTime(timeleft), self.run_time / picoseconds, temperature, kinetic, potential, energy, volume, density))
+                logger.info("%8s %17s %15s %13s %13s %13s %13s %13s %13s %13s" % ('Progress', 'E.T.A', 'Speed (ns/day)', 'Time(ps)', 'Temp(K)', 'Kin(kJ)', 'Pot(kJ)', 'Ene(kJ)', 'Vol(nm3)', 'Rho(kg/m3)'))
+            logger.info("%7.3f%% %17s %15.5f %13.5f %13.5f %13.5f %13.5f %13.5f %13.5f %13.5f" % (pct, GetTime(timeleft), nsday, self.run_time / picoseconds, temperature, kinetic, potential, energy, volume, density))
             self._data['volume'].append(volume)
             self._data['density'].append(density)
         else:
@@ -956,6 +968,9 @@ else:
             settings = [('constraints', args.constraints), ('rigidWater', args.rigidwater), ('nonbondedMethod', args.nonbonded_method_obj)]
             args.deactivate('ewald_error_tolerance',"Deactivated for a nonperiodic system.")
             args.deactivate('dispersion_correction',"Deactivated for a nonperiodic system.")
+        settings += [('hydrogenMass', args.hydrogen_mass*amu)]
+        args.deactivate('vdw_switch', "This option is not used by the script")
+        args.deactivate('switch_distance', "This option is not used by the script")
         # if 'vdw_switch' in args.ActiveOptions and args.vdw_switch:
         #     settings += [('useSwitchingFunction', True), ('switchingDistance', args.switch_distance)]
         args.deactivate("vdw_cutoff",msg="Not simulating an AMOEBA system")
@@ -1069,6 +1084,7 @@ else:
 if not hasattr(args,'constraints') or (str(args.constraints) == "None" and args.rigidwater == False):
     args.deactivate('constraint_tolerance',"There are no constraints in this system")
 else:
+    logger.info("Setting constraint tolerance to %.3e" % args.constraint_tolerance)
     integrator.setConstraintTolerance(args.constraint_tolerance)
 
 #==================================#
@@ -1224,6 +1240,7 @@ else:
     if args.report_interval > 0:
         # Append the ProgressReport for equilibration run.
         simulation.reporters.append(ProgressReport(sys.stdout, args.report_interval, simulation, args.equilibrate))
+        simulation.reporters[-1].t00 = time.time()
         logger.info("Progress will be reported every %i steps" % args.report_interval)
     # This command actually does all of the computation.
     simulation.step(args.equilibrate)
@@ -1243,6 +1260,7 @@ logger.info("--== Production (%i steps, %.2f ps) ==--" % (args.production, args.
 if args.report_interval > 0:
     logger.info("Progress will be reported every %i steps" % args.report_interval)
     simulation.reporters.append(ProgressReport(sys.stdout, args.report_interval, simulation, args.production, first))
+    Prog = simulation.reporters[-1]
 
 if args.pdb_report_interval > 0:
     bak(args.pdb_report_filename)
@@ -1273,9 +1291,11 @@ if args.initial_report:
     logger.info("Doing the initial report.")
     for Reporter in simulation.reporters:
         #if Reporter.__class__.__name__ != "ProgressReport":
+        Prog.t00 = None
         Reporter.report(simulation,simulation.context.getState(getPositions=True,getVelocities=True,getForces=True,getEnergy=True))
 
 t1 = time.time()
+Prog.t00 = t1
 
 # This command actually does all of the computation.
 simulation.step(args.production)
