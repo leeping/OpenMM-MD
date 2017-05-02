@@ -1202,7 +1202,7 @@ def add_barostat():
             logger.info("This is a constant pressure (NPT) run at %.2f atm pressure" % args.pressure)
             logger.info("Adding Monte Carlo barostat with volume adjustment interval %i" % args.nbarostat)
             logger.info("Anisotropic box scaling is %s" % args.anisotropic)
-            if args.anisotropic != 'None':
+            if args.anisotropic != None:
                 #logger.info("Only the Z-axis will be adjusted")
                 adjust_x = 'x' in args.anisotropic
                 adjust_y = 'y' in args.anisotropic
