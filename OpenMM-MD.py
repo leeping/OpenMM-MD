@@ -638,7 +638,7 @@ class SimulationOptions(object):
                         clash=(self.temperature <= 0.0),
                         msg="For constant pressure simulations, the temperature must be finite")
         self.set_active('anisotropic','None',str,"Specify 'x' and/or 'y' and/or 'z' for anisotropic box scaling in NPT simulations",
-                        depend=("pressure" in self.ActiveOptions and self.pressure > 0.0), msg = "We're not running a constant pressure simulation", allowed=['None','x','y','z','xy','xz','yz','xyz'])
+                        depend=("pressure" in self.ActiveOptions and self.pressure > 0.0), msg = "We're not running a constant pressure simulation", allowed=[None,'x','y','z','xy','xz','yz','xyz'])
         self.set_active('nbarostat',25,int,"Step interval for MC barostat volume adjustments.",
                         depend=("pressure" in self.ActiveOptions and self.pressure > 0.0), msg = "We're not running a constant pressure simulation")
         self.set_active('nonbonded_method','PME',str,"Set the method for nonbonded interactions.", allowed=["NoCutoff","CutoffNonPeriodic","CutoffPeriodic","Ewald","PME"])
@@ -878,7 +878,7 @@ class RestartReporter(object):
                 r_mass = 1.0/mass if mass > 0 else 0
                 rev_mass.append(r_mass)
             rev_mass /= dalton
-            
+
             # Get accelerations.
             accel = []
             for i in range(simulation.context.getSystem().getNumParticles()):
