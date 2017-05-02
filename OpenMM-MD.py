@@ -637,7 +637,7 @@ class SimulationOptions(object):
         self.set_active('pressure',0.0,float,"Simulation pressure; set a positive number to activate.",
                         clash=(self.temperature <= 0.0),
                         msg="For constant pressure simulations, the temperature must be finite")
-        self.set_active('anisotropic','None',str,"Specify 'x' and/or 'y' and/or 'z' for anisotropic box scaling in NPT simulations",
+        self.set_active('anisotropic',None,str,"Specify 'x' and/or 'y' and/or 'z' for anisotropic box scaling in NPT simulations",
                         depend=("pressure" in self.ActiveOptions and self.pressure > 0.0), msg = "We're not running a constant pressure simulation", allowed=[None,'x','y','z','xy','xz','yz','xyz'])
         self.set_active('nbarostat',25,int,"Step interval for MC barostat volume adjustments.",
                         depend=("pressure" in self.ActiveOptions and self.pressure > 0.0), msg = "We're not running a constant pressure simulation")
