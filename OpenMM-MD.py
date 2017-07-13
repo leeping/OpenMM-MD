@@ -207,6 +207,26 @@ def compute_total_charge(system):
                 total_charge += f.getParticleParameters(i)[0]
     return total_charge
 
+def balance_charge_atoms(system, balance_charge_atoms):
+    amf = None
+    for f in system.getForces():
+        if f.__class__.__name__ == 'AmoebaMultipoleForce':
+            amf = f
+    if amf is None:
+        raise RuntimeError("AmoebaMultipoleForce is not found in the system")
+    noa = system.getNumParticles()
+    # get charges
+    atom_MultipoleParameters = [amf.getMultipoleParameters(i) for i in xrange(noa)]
+    total_charge = sum([atom_MultipoleParameters[i][0] for i in xrange(noa)])
+    logger.info("Original total charge in the system is %s"%total_charge)
+    atom_indices = uncommadash(balance_charge_atoms)
+    average_shift = -total_charge / len(atom_indices)
+    for i in atom_indices:
+        atom_MultipoleParameters[i][0] += average_shift
+        amf.setMultipoleParameters(i, *atom_MultipoleParameters[i])
+    logger.info("Charge of each atom in %s is shifted by %s to make the total charge 0." % (balance_charge_atoms, average_shift))
+
+
 def printcool(text,sym="#",bold=False,color=2,ansi=None,bottom='-',minwidth=50):
     """Cool-looking printout for slick formatting of output.
 
@@ -697,7 +717,7 @@ class SimulationOptions(object):
         self.set_active('group_down_atoms',None,str,"Set the indices of the atoms in Group to be pushed downwards.", depend=(self.group_down_pressure>0), msg="Group Down Pressure must > 0")
         self.set_active('block_z_pos',6.0,float,"Set the z position of the block. (nm)")
         self.set_active('block_z_atoms',None,str,"Set the indices of the atoms that will be blocked from crossing the block_z_pos.")
-
+        self.set_active('balance_charge_atoms',None,str,"Set the indices of atoms that will be used to balance the total charge of the system.")
 #================================#
 #    The command line parser     #
 #================================#
@@ -1167,6 +1187,12 @@ else:
             ex_force.addParticle(atom_idx)
         # Add force to system
         system.addForce(ex_force)
+
+    #===========================================#
+    #| Balance the total charge of the system  |#
+    #===========================================#
+    if args.balance_charge_atoms:
+        balance_charge_atoms(system, args.balance_charge_atoms)
 
 #====================================#
 #| Temperature and pressure control |#
