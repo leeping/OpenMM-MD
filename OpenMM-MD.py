@@ -29,6 +29,7 @@ this program.  If not, see <http://www.gnu.org/licenses/>.
 #| Global Imports |#
 #==================#
 
+from __future__ import print_function, division
 import time
 from datetime import datetime, timedelta
 t0 = time.time()
@@ -261,18 +262,18 @@ def printcool(text,sym="#",bold=False,color=2,ansi=None,bottom='-',minwidth=50):
     text = text.split('\n')
     width = max(minwidth,max([newlen(line) for line in text]))
     bar = ''.join([sym for i in range(width + 8)])
-    print '\n'+bar
+    print('\n'+bar)
     for line in text:
         padleft = ' ' * ((width - newlen(line)) / 2)
         padright = ' '* (width - newlen(line) - len(padleft))
         if ansi != None:
             ansi = str(ansi)
-            print "%s| \x1b[%sm%s" % (sym, ansi, padleft),line,"%s\x1b[0m |%s" % (padright, sym)
+            print("%s| \x1b[%sm%s" % (sym, ansi, padleft),line,"%s\x1b[0m |%s" % (padright, sym))
         elif color != None:
-            print "%s| \x1b[%s9%im%s" % (sym, bold and "1;" or "", color, padleft),line,"%s\x1b[0m |%s" % (padright, sym)
+            print("%s| \x1b[%s9%im%s" % (sym, bold and "1;" or "", color, padleft),line,"%s\x1b[0m |%s" % (padright, sym))
         else:
             warn_press_key("Inappropriate use of printcool")
-    print bar
+    print(bar)
     return sub(sym,bottom,bar)
 
 def printcool_dictionary(Dict,title="General options",bold=False,color=2,keywidth=25,topwidth=50):
@@ -292,10 +293,10 @@ def printcool_dictionary(Dict,title="General options",bold=False,color=2,keywidt
         #print "\'%%-%is\' %% '%s'" % (keywidth,str.replace("'","\\'").replace('"','\\"'))
         return eval("\'%%-%is\' %% '%s'" % (keywidth,str.replace("'","\\'").replace('"','\\"')))
     if isinstance(Dict, OrderedDict):
-        print '\n'.join(["%s %s " % (magic_string(str(key)),str(Dict[key])) for key in Dict if Dict[key] != None])
+        print('\n'.join(["%s %s " % (magic_string(str(key)),str(Dict[key])) for key in Dict if Dict[key] != None]))
     else:
-        print '\n'.join(["%s %s " % (magic_string(str(key)),str(Dict[key])) for key in sorted([i for i in Dict]) if Dict[key] != None])
-    print bar
+        print('\n'.join(["%s %s " % (magic_string(str(key)),str(Dict[key])) for key in sorted([i for i in Dict]) if Dict[key] != None]))
+    print(bar)
 
 def EnergyDecomposition(Sim, verbose=False):
     # Before using EnergyDecomposition, make sure each Force is set to a different group.
@@ -346,10 +347,10 @@ def MTSVVVRIntegrator(temperature, collision_rate, timestep, system, ninnersteps
     for i in system.getForces():
         if i.__class__.__name__ in ["NonbondedForce", "CustomNonbondedForce", "AmoebaVdwForce", "AmoebaMultipoleForce"]:
             # Slow force.
-            print i.__class__.__name__, "is a Slow Force"
+            print(i.__class__.__name__, "is a Slow Force")
             i.setForceGroup(1)
         else:
-            print i.__class__.__name__, "is a Fast Force"
+            print(i.__class__.__name__, "is a Fast Force")
             # Fast force.
             i.setForceGroup(0)
 
@@ -732,13 +733,13 @@ def add_argument(group, *args, **kwargs):
             kwargs['help'] = d
     group.add_argument(*args, **kwargs)
 
-print
-print " #===========================================#"
-print " #|    OpenMM general purpose simulation    |#"
-print " #| (Hosted @ github.com/leeping/OpenMM-MD) |#"
-print " #|  Use the -h argument for detailed help  |#"
-print " #===========================================#"
-print
+print()
+print( " #===========================================#")
+print( " #|    OpenMM general purpose simulation    |#")
+print( " #| (Hosted @ github.com/leeping/OpenMM-MD) |#")
+print( " #|  Use the -h argument for detailed help  |#")
+print( " #===========================================#")
+print()
 
 parser = argparse.ArgumentParser()
 add_argument(parser, 'pdb', nargs=1, metavar='input.pdb', help='Specify one PDB or AMBER inpcrd file \x1b[1;91m(Required)\x1b[0m', type=str)
@@ -864,8 +865,8 @@ class EnergyReporter(object):
         self.run_time = float(simulation.currentStep - self._first) * args.timestep * femtosecond
         self.eda = EnergyDecomposition(simulation)
         if self._initial:
-            print >> self._out, ' '.join(["%25s" % i for i in ['#Time(ps)'] + self.eda.keys()])
-        print >> self._out, ' '.join(["%25.10f" % i for i in [self.run_time/picosecond] + self.eda.values()])
+            print(' '.join(["%25s" % i for i in ['#Time(ps)'] + self.eda.keys()]), file=self._out)
+        print(' '.join(["%25.10f" % i for i in [self.run_time/picosecond] + self.eda.values()]), file=self._out)
         self._initial = False
 
     def __del__(self):
@@ -1381,13 +1382,13 @@ for f in simulation.context.getSystem().getForces():
 
 # Print the sample input file here.
 for line in args.record():
-    print line
+    print(line)
 
 #===============================================================#
 #| Run dynamics for equilibration, or load restart information |#
 #===============================================================#
 if os.path.exists(args.restart_filename) and args.read_restart:
-    print "Restarting simulation from the restart file."
+    print("Restarting simulation from the restart file.")
     # Load information from the restart file.
     r_positions, r_velocities, r_boxes = pickle.load(open(args.restart_filename))
     # NOTE: Periodic box vectors must be set FIRST
@@ -1424,7 +1425,7 @@ if os.path.exists(args.restart_filename) and args.read_restart:
 else:
     # Set initial positions.
     simulation.context.setPositions(modeller.positions)
-    print "Initial potential is:", simulation.context.getState(getEnergy=True).getPotentialEnergy()
+    print("Initial potential is:", simulation.context.getState(getEnergy=True).getPotentialEnergy())
     if args.integrator != 'mtsvvvr':
         eda = EnergyDecomposition(simulation)
         eda_kcal = OrderedDict([(i, "%10.4f" % (j/4.184)) for i, j in eda.items()])
@@ -1432,11 +1433,11 @@ else:
 
     # Minimize the energy.
     if args.minimize:
-        print "Minimization start, the energy is:", simulation.context.getState(getEnergy=True).getPotentialEnergy()
+        print("Minimization start, the energy is:", simulation.context.getState(getEnergy=True).getPotentialEnergy())
         simulation.minimizeEnergy()
-        print "Minimization done, the energy is", simulation.context.getState(getEnergy=True).getPotentialEnergy()
+        print("Minimization done, the energy is", simulation.context.getState(getEnergy=True).getPotentialEnergy())
         positions = simulation.context.getState(getPositions=True).getPositions()
-        print "Minimized geometry is written to 'minimized.pdb'"
+        print("Minimized geometry is written to 'minimized.pdb'")
         PDBFile.writeModel(modeller.topology, positions, open('minimized.pdb','w'))
     # Assign velocities.
     if args.gentemp > 0.0:
@@ -1510,6 +1511,6 @@ prodtime = time.time() - t1
 #=============================================#
 logger.info('Getting statistics for the production run.')
 simulation.reporters[0].analyze(simulation)
-print "Total wall time: % .4f seconds" % (time.time() - t0)
-print "Production wall time: % .4f seconds" % (prodtime)
-print "Simulation speed: % .6f ns/day" % (86400*args.production*args.timestep*femtosecond/nanosecond/(prodtime))
+print("Total wall time: % .4f seconds" % (time.time() - t0))
+print("Production wall time: % .4f seconds" % (prodtime))
+print("Simulation speed: % .6f ns/day" % (86400*args.production*args.timestep*femtosecond/nanosecond/(prodtime)))
