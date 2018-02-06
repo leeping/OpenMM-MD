@@ -33,7 +33,6 @@ from __future__ import print_function, division
 import time
 from datetime import datetime, timedelta
 t0 = time.time()
-from ast import literal_eval as leval
 import argparse
 from xml.etree import ElementTree as ET
 import os
@@ -217,8 +216,8 @@ def balance_charge_atoms(system, balance_charge_atoms):
         raise RuntimeError("AmoebaMultipoleForce is not found in the system")
     noa = system.getNumParticles()
     # get charges
-    atom_MultipoleParameters = [amf.getMultipoleParameters(i) for i in xrange(noa)]
-    total_charge = sum([atom_MultipoleParameters[i][0] for i in xrange(noa)])
+    atom_MultipoleParameters = [amf.getMultipoleParameters(i) for i in range(noa)]
+    total_charge = sum([atom_MultipoleParameters[i][0] for i in range(noa)])
     logger.info("Original total charge in the system is %s"%total_charge)
     atom_indices = uncommadash(balance_charge_atoms)
     average_shift = -total_charge / len(atom_indices)
@@ -258,13 +257,13 @@ def printcool(text,sym="#",bold=False,color=2,ansi=None,bottom='-',minwidth=50):
     """
     if logger.getEffectiveLevel() < 20: return
     def newlen(l):
-        return len(sub("\x1b\[[0-9;]*m","",line))
+        return len(sub("\x1b\[[0-9;]*m","",l))
     text = text.split('\n')
     width = max(minwidth,max([newlen(line) for line in text]))
     bar = ''.join([sym for i in range(width + 8)])
     print('\n'+bar)
     for line in text:
-        padleft = ' ' * ((width - newlen(line)) / 2)
+        padleft = ' ' * int((width - newlen(line)) / 2)
         padright = ' '* (width - newlen(line) - len(padleft))
         if ansi != None:
             ansi = str(ansi)
@@ -447,6 +446,51 @@ def uncommadash(s):
         raise RuntimeError
     return L
 
+def string_to_type(val, typ):
+    assert type(val) == str
+    v = val.lower()
+    if v == "none":
+        return None
+    if typ == str:
+        return val
+    elif typ == bool:
+        if v == "false":
+            return False
+        elif v == "true":
+            return True
+        else:
+            try:
+                return bool(float(v))
+            except:
+                raise TypeError("%s can not be converted to bool" % val)
+    elif typ == int:
+        try:
+            return int(val)
+        except:
+            raise TypeError("%s can not be converted to int" % val)
+    elif typ == float:
+        try:
+            return float(val)
+        except:
+            raise TypeError("%s can not be converted to float" % val)
+    elif typ in (list, tuple):
+        assert val[0] in '[(' and val[-1] in '])', "%s to %s should be in format [,] or (,)"%(val, str(typ))
+        ls = val[1:-1].split(',')
+        # we don't know what type is desired in the list, assuming int or float
+        try:
+            return typ(map(int, ls))
+        except:
+            pass
+        try:
+            return typ(map(float, ls))
+        except:
+            return ls
+    else:
+        raise NotImplementedError("Converting %s to type %s not implemented yet." % (val, str(typ)))
+
+
+
+
 
 #================================#
 #     The input file parser      #
@@ -469,21 +513,20 @@ class SimulationOptions(object):
         self.Documentation[key] = "%-8s " % ("(" + sub("'>","",sub("<type '","",str(typ)))+")") + doc
         if key in self.UserOptions:
             val = self.UserOptions[key]
+            val = string_to_type(val, typ)
         else:
             val = default
+            if val != None:
+                assert type(val) == typ, "Default value %s is not in desired type %s!" % (default, str(typ))
         if type(allowed) is list:
             self.Documentation[key] += " Allowed values are %s" % str(allowed)
             if val not in allowed:
+                print(list(val))
                 raise Exception("Tried to set option \x1b[1;91m%s\x1b[0m to \x1b[94m%s\x1b[0m but it's not allowed (choose from \x1b[92m%s\x1b[0m)" % (key, str(val), str(allowed)))
-        if typ is bool and type(val) == int:
-            val = bool(val)
+        # Try my own function to convert string to deired type
+        # val = string_to_type(val, typ)
         if val != None and type(val) is not typ:
-            if type(val) in [tuple, list] and typ is str:
-                val = ','.join([str(v) for v in val])
-            elif type(val) in [int, float] and typ is str:
-                val = str(val)
-            else:
-                raise Exception("Tried to set option \x1b[1;91m%s\x1b[0m to \x1b[94m%s\x1b[0m but it's not the right type (%s required)" % (key, str(val), str(typ)))
+            raise Exception("Tried to set option \x1b[1;91m%s\x1b[0m to \x1b[94m%s\x1b[0m but it's not the right type (%s required)" % (key, str(val), str(typ)))
         if depend and not clash:
             if key in self.InactiveOptions:
                 del self.InactiveOptions[key]
@@ -631,10 +674,7 @@ class SimulationOptions(object):
                 if len(s) > 0:
                     # Options are case insensitive
                     key = s[0].lower()
-                    try:
-                        val = leval(line.replace(s[0],'',1).strip())
-                    except:
-                        val = str(line.replace(s[0],'',1).strip())
+                    val = line.replace(s[0],'',1).strip()
                     self.UserOptions[key] = val
         # Now go through the logic of determining which options are activated.
         self.set_active('integrator','verlet',str,"Molecular dynamics integrator",allowed=["verlet","langevin","velocity-verlet","mtsvvvr"])
@@ -865,8 +905,8 @@ class EnergyReporter(object):
         self.run_time = float(simulation.currentStep - self._first) * args.timestep * femtosecond
         self.eda = EnergyDecomposition(simulation)
         if self._initial:
-            print(' '.join(["%25s" % i for i in ['#Time(ps)'] + self.eda.keys()]), file=self._out)
-        print(' '.join(["%25.10f" % i for i in [self.run_time/picosecond] + self.eda.values()]), file=self._out)
+            print(' '.join(["%25s" % i for i in ['#Time(ps)'] + list(self.eda.keys())]), file=self._out)
+        print(' '.join(["%25.10f" % i for i in [self.run_time/picosecond] + list(self.eda.values())]), file=self._out)
         self._initial = False
 
     def __del__(self):
@@ -918,7 +958,7 @@ class RestartReporter(object):
         if os.path.exists(self._file):
             shutil.move(self._file, self._file+".bak")
         # Write the restart file pickle
-        with open(self._file,'w') as f: pickle.dump((Xfin, Vfin, Bfin),f)
+        with open(self._file,'wb') as f: pickle.dump((Xfin, Vfin, Bfin),f)
 
 # Create an OpenMM PDB object.
 pdb = PDBFile(pdbfnm)
@@ -1308,12 +1348,8 @@ platform = Platform.getPlatformByName(args.platform)
 
 if 'device' in args.ActiveOptions:
     # The device may be set using an environment variable or the input file.
-    if os.environ.has_key('CUDA_DEVICE'):
-        device = os.environ.get('CUDA_DEVICE',str(args.device))
-    elif os.environ.has_key('CUDA_DEVICE_INDEX'):
-        device = os.environ.get('CUDA_DEVICE_INDEX',str(args.device))
-    else:
-        device = str(args.device)
+    device = os.environ.get('CUDA_DEVICE_INDEX', str(args.device))
+    device = os.environ.get('CUDA_DEVICE', device)
     if device != None:
         logger.info("Setting Device to %s" % str(device))
         #platform.setPropertyDefaultValue("CudaDevice", device)
@@ -1390,7 +1426,7 @@ for line in args.record():
 if os.path.exists(args.restart_filename) and args.read_restart:
     print("Restarting simulation from the restart file.")
     # Load information from the restart file.
-    r_positions, r_velocities, r_boxes = pickle.load(open(args.restart_filename))
+    r_positions, r_velocities, r_boxes = pickle.load(open(args.restart_filename, 'rb'))
     # NOTE: Periodic box vectors must be set FIRST
     if pbc:
         simulation.context.setPeriodicBoxVectors(r_boxes[0] * nanometer,r_boxes[1] * nanometer, r_boxes[2] * nanometer)
