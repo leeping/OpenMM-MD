@@ -1402,7 +1402,9 @@ logger.info("Total system charge   : %.5f elementary charge" % (compute_total_ch
 for f in simulation.context.getSystem().getForces():
     if f.__class__.__name__ == 'AmoebaMultipoleForce':
         logger.info("AMOEBA PME order      : %i" % f.getPmeBSplineOrder())
-        logger.info("AMOEBA PME grid       : %s" % str(f.getPmeGridDimensions()))
+        pme_params = f.getPMEParametersInContext(simulation.context)
+        logger.info("AMOEBA PME grid       : %s" % str(pme_params[1:]))
+        logger.info("AMOEBA PME aEwald     : %.5f" % pme_params[0])
     if f.__class__.__name__ == 'NonbondedForce':
         method_names = ["NoCutoff", "CutoffNonPeriodic", "CutoffPeriodic", "Ewald", "PME"]
         logger.info("Nonbonded method      : %s" % method_names[f.getNonbondedMethod()])
