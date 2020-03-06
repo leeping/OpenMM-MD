@@ -29,10 +29,10 @@ this program.  If not, see <http://www.gnu.org/licenses/>.
 #| Global Imports |#
 #==================#
 
+from __future__ import print_function, division
 import time
 from datetime import datetime, timedelta
 t0 = time.time()
-from ast import literal_eval as leval
 import argparse
 from xml.etree import ElementTree as ET
 import os
@@ -51,6 +51,8 @@ warnings.simplefilter("ignore")
 import logging
 logging.basicConfig()
 
+
+sys.setrecursionlimit(10000)
 #================================#
 #       Set up the logger        #
 #================================#
@@ -193,6 +195,38 @@ def compute_mass(system):
         mass += system.getParticleMass(i)
     return mass
 
+def compute_total_charge(system):
+    """ Compute the total charge of an OpenMM system with the NonbondedForce or AmoebaMultipoleForce """
+    total_charge = 0.0 * elementary_charge
+    for f in system.getForces():
+        if f.__class__.__name__ == 'AmoebaMultipoleForce':
+            for i in range(system.getNumParticles()):
+                total_charge += f.getMultipoleParameters(i)[0]
+        if f.__class__.__name__ == 'NonbondedForce':
+            for i in range(system.getNumParticles()):
+                total_charge += f.getParticleParameters(i)[0]
+    return total_charge
+
+def balance_charge_atoms(system, balance_charge_atoms):
+    amf = None
+    for f in system.getForces():
+        if f.__class__.__name__ == 'AmoebaMultipoleForce':
+            amf = f
+    if amf is None:
+        raise RuntimeError("AmoebaMultipoleForce is not found in the system")
+    noa = system.getNumParticles()
+    # get charges
+    atom_MultipoleParameters = [amf.getMultipoleParameters(i) for i in range(noa)]
+    total_charge = sum([atom_MultipoleParameters[i][0] for i in range(noa)])
+    logger.info("Original total charge in the system is %s"%total_charge)
+    atom_indices = uncommadash(balance_charge_atoms)
+    average_shift = -total_charge / len(atom_indices)
+    for i in atom_indices:
+        atom_MultipoleParameters[i][0] += average_shift
+        amf.setMultipoleParameters(i, *atom_MultipoleParameters[i])
+    logger.info("Charge of each atom in %s is shifted by %s to make the total charge 0." % (balance_charge_atoms, average_shift))
+
+
 def printcool(text,sym="#",bold=False,color=2,ansi=None,bottom='-',minwidth=50):
     """Cool-looking printout for slick formatting of output.
 
@@ -223,22 +257,22 @@ def printcool(text,sym="#",bold=False,color=2,ansi=None,bottom='-',minwidth=50):
     """
     if logger.getEffectiveLevel() < 20: return
     def newlen(l):
-        return len(sub("\x1b\[[0-9;]*m","",line))
+        return len(sub("\x1b\[[0-9;]*m","",l))
     text = text.split('\n')
     width = max(minwidth,max([newlen(line) for line in text]))
     bar = ''.join([sym for i in range(width + 8)])
-    print '\n'+bar
+    print('\n'+bar)
     for line in text:
-        padleft = ' ' * ((width - newlen(line)) / 2)
+        padleft = ' ' * int((width - newlen(line)) / 2)
         padright = ' '* (width - newlen(line) - len(padleft))
         if ansi != None:
             ansi = str(ansi)
-            print "%s| \x1b[%sm%s" % (sym, ansi, padleft),line,"%s\x1b[0m |%s" % (padright, sym)
+            print("%s| \x1b[%sm%s" % (sym, ansi, padleft),line,"%s\x1b[0m |%s" % (padright, sym))
         elif color != None:
-            print "%s| \x1b[%s9%im%s" % (sym, bold and "1;" or "", color, padleft),line,"%s\x1b[0m |%s" % (padright, sym)
+            print("%s| \x1b[%s9%im%s" % (sym, bold and "1;" or "", color, padleft),line,"%s\x1b[0m |%s" % (padright, sym))
         else:
             warn_press_key("Inappropriate use of printcool")
-    print bar
+    print(bar)
     return sub(sym,bottom,bar)
 
 def printcool_dictionary(Dict,title="General options",bold=False,color=2,keywidth=25,topwidth=50):
@@ -258,10 +292,10 @@ def printcool_dictionary(Dict,title="General options",bold=False,color=2,keywidt
         #print "\'%%-%is\' %% '%s'" % (keywidth,str.replace("'","\\'").replace('"','\\"'))
         return eval("\'%%-%is\' %% '%s'" % (keywidth,str.replace("'","\\'").replace('"','\\"')))
     if isinstance(Dict, OrderedDict):
-        print '\n'.join(["%s %s " % (magic_string(str(key)),str(Dict[key])) for key in Dict if Dict[key] != None])
+        print('\n'.join(["%s %s " % (magic_string(str(key)),str(Dict[key])) for key in Dict if Dict[key] != None]))
     else:
-        print '\n'.join(["%s %s " % (magic_string(str(key)),str(Dict[key])) for key in sorted([i for i in Dict]) if Dict[key] != None])
-    print bar
+        print('\n'.join(["%s %s " % (magic_string(str(key)),str(Dict[key])) for key in sorted([i for i in Dict]) if Dict[key] != None]))
+    print(bar)
 
 def EnergyDecomposition(Sim, verbose=False):
     # Before using EnergyDecomposition, make sure each Force is set to a different group.
@@ -312,10 +346,10 @@ def MTSVVVRIntegrator(temperature, collision_rate, timestep, system, ninnersteps
     for i in system.getForces():
         if i.__class__.__name__ in ["NonbondedForce", "CustomNonbondedForce", "AmoebaVdwForce", "AmoebaMultipoleForce"]:
             # Slow force.
-            print i.__class__.__name__, "is a Slow Force"
+            print(i.__class__.__name__, "is a Slow Force")
             i.setForceGroup(1)
         else:
-            print i.__class__.__name__, "is a Fast Force"
+            print(i.__class__.__name__, "is a Fast Force")
             # Fast force.
             i.setForceGroup(0)
 
@@ -378,6 +412,85 @@ def bak(fnm):
         logger.info("Backing up %s -> %s" % (oldfnm, fnm))
         shutil.move(oldfnm,fnm)
 
+def uncommadash(s):
+    # Takes a string like '27-31,88-91,100,136-139'
+    # and turns it into a list like [26, 27, 28, 29, 30, 87, 88, 89, 90, 99, 135, 136, 137, 138]
+    L = []
+    try:
+        for w in s.split(','):
+            ws = w.split('-')
+            a = int(ws[0])-1
+            if len(ws) == 1:
+                b = int(ws[0])
+            elif len(ws) == 2:
+                b = int(ws[1])
+            else:
+                logger.warning("Dash-separated list cannot exceed length 2\n")
+                raise
+            if a < 0 or b <= 0 or b <= a:
+                if a < 0 or b <= 0:
+                    logger.warning("Items in list cannot be zero or negative: %d %d\n" % (a, b))
+                else:
+                    logger.warning("Second number cannot be smaller than first: %d %d\n" % (a, b))
+                raise
+            newL = range(a,b)
+            if any([i in L for i in newL]):
+                logger.warning("Duplicate entries found in list\n")
+                raise
+            L += newL
+        if sorted(L) != L:
+            logger.warning("List is out of order\n")
+            raise
+    except:
+        logger.error('Invalid string for converting to list of numbers: %s\n' % s)
+        raise RuntimeError
+    return L
+
+def string_to_type(val, typ):
+    assert type(val) == str
+    v = val.lower()
+    if v == "none":
+        return None
+    if typ == str:
+        return val
+    elif typ == bool:
+        if v == "false":
+            return False
+        elif v == "true":
+            return True
+        else:
+            try:
+                return bool(float(v))
+            except:
+                raise TypeError("%s can not be converted to bool" % val)
+    elif typ == int:
+        try:
+            return int(val)
+        except:
+            raise TypeError("%s can not be converted to int" % val)
+    elif typ == float:
+        try:
+            return float(val)
+        except:
+            raise TypeError("%s can not be converted to float" % val)
+    elif typ in (list, tuple):
+        assert val[0] in '[(' and val[-1] in '])', "%s to %s should be in format [,] or (,)"%(val, str(typ))
+        ls = val[1:-1].split(',')
+        # we don't know what type is desired in the list, assuming int or float
+        try:
+            return typ(map(int, ls))
+        except:
+            pass
+        try:
+            return typ(map(float, ls))
+        except:
+            return ls
+    else:
+        raise NotImplementedError("Converting %s to type %s not implemented yet." % (val, str(typ)))
+
+
+
+
 
 #================================#
 #     The input file parser      #
@@ -400,14 +513,18 @@ class SimulationOptions(object):
         self.Documentation[key] = "%-8s " % ("(" + sub("'>","",sub("<type '","",str(typ)))+")") + doc
         if key in self.UserOptions:
             val = self.UserOptions[key]
+            val = string_to_type(val, typ)
         else:
             val = default
+            if val != None:
+                assert type(val) == typ, "Default value %s is not in desired type %s!" % (default, str(typ))
         if type(allowed) is list:
             self.Documentation[key] += " Allowed values are %s" % str(allowed)
             if val not in allowed:
+                print(list(val))
                 raise Exception("Tried to set option \x1b[1;91m%s\x1b[0m to \x1b[94m%s\x1b[0m but it's not allowed (choose from \x1b[92m%s\x1b[0m)" % (key, str(val), str(allowed)))
-        if typ is bool and type(val) == int:
-            val = bool(val)
+        # Try my own function to convert string to deired type
+        # val = string_to_type(val, typ)
         if val != None and type(val) is not typ:
             raise Exception("Tried to set option \x1b[1;91m%s\x1b[0m to \x1b[94m%s\x1b[0m but it's not the right type (%s required)" % (key, str(val), str(typ)))
         if depend and not clash:
@@ -557,10 +674,7 @@ class SimulationOptions(object):
                 if len(s) > 0:
                     # Options are case insensitive
                     key = s[0].lower()
-                    try:
-                        val = leval(line.replace(s[0],'',1).strip())
-                    except:
-                        val = str(line.replace(s[0],'',1).strip())
+                    val = line.replace(s[0],'',1).strip()
                     self.UserOptions[key] = val
         # Now go through the logic of determining which options are activated.
         self.set_active('integrator','verlet',str,"Molecular dynamics integrator",allowed=["verlet","langevin","velocity-verlet","mtsvvvr"])
@@ -585,8 +699,8 @@ class SimulationOptions(object):
         self.set_active('pressure',0.0,float,"Simulation pressure; set a positive number to activate.",
                         clash=(self.temperature <= 0.0),
                         msg="For constant pressure simulations, the temperature must be finite")
-        self.set_active('anisotropic',False,bool,"Set to True for anisotropic box scaling in NPT simulations",
-                        depend=("pressure" in self.ActiveOptions and self.pressure > 0.0), msg = "We're not running a constant pressure simulation")
+        self.set_active('anisotropic',None,str,"Specify 'x' and/or 'y' and/or 'z' for anisotropic box scaling in NPT simulations",
+                        depend=("pressure" in self.ActiveOptions and self.pressure > 0.0), msg = "We're not running a constant pressure simulation", allowed=[None,'x','y','z','xy','xz','yz','xyz'])
         self.set_active('nbarostat',25,int,"Step interval for MC barostat volume adjustments.",
                         depend=("pressure" in self.ActiveOptions and self.pressure > 0.0), msg = "We're not running a constant pressure simulation")
         self.set_active('nonbonded_method','PME',str,"Set the method for nonbonded interactions.", allowed=["NoCutoff","CutoffNonPeriodic","CutoffPeriodic","Ewald","PME"])
@@ -597,8 +711,10 @@ class SimulationOptions(object):
         self.set_active('dispersion_correction',True,bool,"Isotropic long-range dispersion correction for periodic systems.")
         self.set_active('ewald_error_tolerance',0.0,float,"Error tolerance for Ewald and PME methods.  Don't go below 5e-5 for PME unless running in double precision.",
                         depend=(self.nonbonded_method_obj in [Ewald, PME]), msg="Nonbonded method must be set to Ewald or PME.")
-        self.set_active('platform',"CUDA",str,"The simulation platform.", allowed=["Reference","CUDA","OpenCL"])
-        self.set_active('cuda_precision','single',str,"The precision of the CUDA platform.", allowed=["single","mixed","double"],
+        platformNames = [Platform.getPlatform(i).getName() for i in range(Platform.getNumPlatforms())]
+        default_platform = 'CUDA' if 'CUDA' in platformNames else 'Reference'
+        self.set_active('platform',default_platform,str,"The simulation platform.", allowed=platformNames)
+        self.set_active('precision','mixed',str,"The precision of the CUDA platform.", allowed=["single","mixed","double"],
                         depend=(self.platform == "CUDA"), msg="The simulation platform needs to be set to CUDA")
         self.set_active('device',None,int,"Specify the device (GPU) number; will default to the fastest available.", depend=(self.platform in ["CUDA", "OpenCL"]),
                         msg="The simulation platform needs to be set to CUDA or OpenCL")
@@ -631,9 +747,19 @@ class SimulationOptions(object):
         if self.tinkerpath != None:
             assert os.path.exists(os.path.join(self.tinkerpath,'dynamic')), "tinkerpath must point to a directory that contains TINKER executables."
         self.set_active('pos_res_k',1e5,float,"Set the force constant for the positional restraints.")
-        self.set_active('pos_res_atoms',None,tuple,"Set the indices of the atoms that will be restrained to their original position.", depend=(self.pos_res_k > 0),msg="Restrain force constants k must > 0")
-
-
+        self.set_active('pos_res_atoms',None,str,"Set the indices of the atoms that will be restrained to their original position.", depend=(self.pos_res_k > 0),msg="Restrain force constants k must > 0")
+        self.set_active('cent_res_k_per_atom',1e5,float,"Set the force constant for the centroid restraints.")
+        self.set_active('cent_res_atoms',None,str,"Set the indices of the atoms whose center will be restrained to their original position.", depend=(self.cent_res_k_per_atom > 0),msg="Restrain force constants k must > 0")
+        self.set_active('cent_res_atoms2',None,str,"Set the indices of the atoms whose center will be restrained to their original position.", depend=(self.cent_res_k_per_atom > 0),msg="Restrain force constants k must > 0")
+        self.set_active('cent_res_xy_atoms',None,str,"Set the indices of the atoms whose center on the x and y direction will be restrained to their original position.", depend=(self.cent_res_k_per_atom > 0),msg="Restrain force constants k must > 0")
+        self.set_active('remove_cm_motion',True,bool,"Remove Center of Mass Motion every Step.")
+        self.set_active('group_up_pressure',1.0,float,"Pressue on the group of atoms along z direction. Unit: bar")
+        self.set_active('group_up_atoms',None,str,"Set the indices of the atoms in Group to be pushed upwards.", depend=(self.group_up_pressure>0), msg="Group Up Pressure must > 0")
+        self.set_active('group_down_pressure',1.0,float,"Pressue on the group of atoms along -z direction. Unit: bar")
+        self.set_active('group_down_atoms',None,str,"Set the indices of the atoms in Group to be pushed downwards.", depend=(self.group_down_pressure>0), msg="Group Down Pressure must > 0")
+        self.set_active('block_z_pos',6.0,float,"Set the z position of the block. (nm)")
+        self.set_active('block_z_atoms',None,str,"Set the indices of the atoms that will be blocked from crossing the block_z_pos.")
+        self.set_active('balance_charge_atoms',None,str,"Set the indices of atoms that will be used to balance the total charge of the system.")
 #================================#
 #    The command line parser     #
 #================================#
@@ -648,13 +774,13 @@ def add_argument(group, *args, **kwargs):
             kwargs['help'] = d
     group.add_argument(*args, **kwargs)
 
-print
-print " #===========================================#"
-print " #|    OpenMM general purpose simulation    |#"
-print " #| (Hosted @ github.com/leeping/OpenMM-MD) |#"
-print " #|  Use the -h argument for detailed help  |#"
-print " #===========================================#"
-print
+print()
+print( " #===========================================#")
+print( " #|    OpenMM general purpose simulation    |#")
+print( " #| (Hosted @ github.com/leeping/OpenMM-MD) |#")
+print( " #|  Use the -h argument for detailed help  |#")
+print( " #===========================================#")
+print()
 
 parser = argparse.ArgumentParser()
 add_argument(parser, 'pdb', nargs=1, metavar='input.pdb', help='Specify one PDB or AMBER inpcrd file \x1b[1;91m(Required)\x1b[0m', type=str)
@@ -791,8 +917,8 @@ class EnergyReporter(object):
         self.run_time = float(simulation.currentStep - self._first) * args.timestep * femtosecond
         self.eda = EnergyDecomposition(simulation)
         if self._initial:
-            print >> self._out, ' '.join(["%25s" % i for i in ['#Time(ps)'] + self.eda.keys()])
-        print >> self._out, ' '.join(["%25.10f" % i for i in [self.run_time/picosecond] + self.eda.values()])
+            print(' '.join(["%25s" % i for i in ['#Time(ps)'] + list(self.eda.keys())]), file=self._out)
+        print(' '.join(["%25.10f" % i for i in [self.run_time/picosecond] + list(self.eda.values())]), file=self._out)
         self._initial = False
 
     def __del__(self):
@@ -819,14 +945,17 @@ class RestartReporter(object):
             v0 = Vfin * nanometer / picosecond
             frc = simulation.context.getState(getForces=True).getForces()
             # Obtain masses.
-            mass = []
+            rev_mass = []
             for i in range(simulation.context.getSystem().getNumParticles()):
-                mass.append(simulation.context.getSystem().getParticleMass(i)/dalton)
-            mass *= dalton
+                mass = simulation.context.getSystem().getParticleMass(i)/dalton
+                r_mass = 1.0/mass if mass > 0 else 0
+                rev_mass.append(r_mass)
+            rev_mass /= dalton
+
             # Get accelerations.
             accel = []
             for i in range(simulation.context.getSystem().getNumParticles()):
-                accel.append(frc[i] / mass[i] / (kilojoule/(nanometer*mole*dalton)))# / (kilojoule/(nanometer*mole*dalton)))
+                accel.append(frc[i] * rev_mass[i] / (kilojoule/(nanometer*mole*dalton)))# / (kilojoule/(nanometer*mole*dalton)))
             accel *= kilojoule/(nanometer*mole*dalton)
             # Propagate velocities backward by half a time step.
             dv = femtosecond * accel
@@ -841,7 +970,7 @@ class RestartReporter(object):
         if os.path.exists(self._file):
             shutil.move(self._file, self._file+".bak")
         # Write the restart file pickle
-        with open(self._file,'w') as f: pickle.dump((Xfin, Vfin, Bfin),f)
+        with open(self._file,'wb') as f: pickle.dump((Xfin, Vfin, Bfin),f)
 
 # Create an OpenMM PDB object.
 pdb = PDBFile(pdbfnm)
@@ -983,31 +1112,143 @@ else:
         args.deactivate("aewald",msg="Not simulating an AMOEBA system")
         args.deactivate("pmegrid",msg="Not simulating an AMOEBA system")
         args.deactivate("tinkerpath",msg="Not simulating an AMOEBA system")
+    # Provide Option to disable the CM Motion
+    settings += [('removeCMMotion', args.remove_cm_motion)]
+    # convert settings to dictionary
+    settings = dict(settings)
+    mixed_nonbondedMethod = False
+    # CustomNonbondedForce does not support PME, so nonbondedMethod will be set after createSystem()
+    if pbc:
+        if any(['CustomNonbonded' in f.__class__.__name__ for f in forcefield._forces]):
+            if settings['nonbondedMethod'] == PME:
+                # remove this setting temporarily
+                settings.pop('nonbondedMethod')
+                mixed_nonbondedMethod = True
+                logger.info("CustomNonbondedForce Detected with PME specified. nonbondedMethod will be set individually.")
+
     logger.info("Now setting up the System with the following system settings:")
     printcool_dictionary(dict(settings),title="OpenMM system object will be set up\n using these options:")
     modeller = Modeller(pdb.topology, pdb.positions)
     modeller.addExtraParticles(forcefield)
     system = forcefield.createSystem(modeller.topology, **dict(settings))
+    # set the nonbondedMethod one by one if we need mixed settings
+    if mixed_nonbondedMethod:
+        for f in system.getForces():
+            if hasattr(f.__class__, 'PME'):
+                f.setNonbondedMethod(f.__class__.PME)
+                logger.info("nonbondedMethod for %s has been set to PME" % f.__class__.__name__)
+            elif hasattr(f.__class__, 'CutoffPeriodic'):
+                f.setNonbondedMethod(f.__class__.CutoffPeriodic)
+                logger.info("nonbondedMethod for %s has been set to CutoffPeriodic" % f.__class__.__name__)
 
     #====================================#
     #| Add positional restraints        |#
     #====================================#
-    # Create external force
-    if args.pos_res_atoms is not None:
+    if args.pos_res_atoms:
+        # Create external force
         ex_force = openmm.CustomExternalForce("k*periodicdistance(x, y, z, x0, y0, z0)^2")
         ex_force.addGlobalParameter('k', args.pos_res_k)
         ex_force.addPerParticleParameter('x0')
         ex_force.addPerParticleParameter('y0')
         ex_force.addPerParticleParameter('z0')
-        # Add force for each atom using there position
-        for atom_idx in args.pos_res_atoms:
-            ex_force.addParticle(atom_idx-1, pdb.positions[atom_idx-1])
+        # Set x0,y0,z0 for each atom using its position
+        for atom_idx in uncommadash(args.pos_res_atoms):
+            ex_force.addParticle(atom_idx, pdb.positions[atom_idx])
+        # Add force to system
         system.addForce(ex_force)
-    
 
+    #====================================#
+    #| Add centroid restraints        |#
+    #====================================#
+    if args.cent_res_atoms:
+        cent_force = openmm.CustomCentroidBondForce(1, "k*((x1-x0)^2 + (y1-y0)^2 + (z1-z0)^2)")
+        particles = uncommadash(args.cent_res_atoms)
+        cent_force.addPerBondParameter('k')
+        g1 = cent_force.addGroup(particles)
+        x0, y0, z0 = np.average([pdb.positions[i] for i in particles] , axis=0)
+        cent_force.addPerBondParameter('x0')
+        cent_force.addPerBondParameter('y0')
+        cent_force.addPerBondParameter('z0')
+        cent_force.addBond([g1], [args.cent_res_k_per_atom*len(particles), x0,y0,z0])
+        system.addForce(cent_force)
+    if args.cent_res_atoms2:
+        cent_force = openmm.CustomCentroidBondForce(1, "k*((x1-x0)^2 + (y1-y0)^2 + (z1-z0)^2)")
+        particles = uncommadash(args.cent_res_atoms2)
+        cent_force.addPerBondParameter('k')
+        g1 = cent_force.addGroup(particles)
+        x0, y0, z0 = np.average([pdb.positions[i] for i in particles] , axis=0)
+        cent_force.addPerBondParameter('x0')
+        cent_force.addPerBondParameter('y0')
+        cent_force.addPerBondParameter('z0')
+        cent_force.addBond([g1], [args.cent_res_k_per_atom*len(particles), x0,y0,z0])
+        system.addForce(cent_force)
+    if args.cent_res_xy_atoms:
+        cent_force = openmm.CustomCentroidBondForce(1, "k*((x1-x0)^2 + (y1-y0)^2)")
+        particles = uncommadash(args.cent_res_xy_atoms)
+        cent_force.addPerBondParameter('k')
+        g1 = cent_force.addGroup(particles)
+        x0, y0, z0 = np.average([pdb.positions[i] for i in particles] , axis=0)
+        cent_force.addPerBondParameter('x0')
+        cent_force.addPerBondParameter('y0')
+        cent_force.addBond([g1], [args.cent_res_k_per_atom*len(particles), x0,y0])
+        system.addForce(cent_force)
 
+    #====================================#
+    #| Use Periodic Bonded Forces       |#
+    #====================================#
+    if pbc:
+        for f in system.getForces():
+            try:
+                f.setUsesPeriodicBoundaryConditions(True)
+            except:
+                pass
 
+    #===========================================#
+    #| Add Up and Down pressure                |#
+    #===========================================#
+    if args.group_up_atoms:
+        logger.info("Adding upward pressure %f bar on Group %s"%(args.group_up_pressure,args.group_up_atoms))
+        cent_force = openmm.CustomCentroidBondForce(1, "-k*z1")
+        particles1 = uncommadash(args.group_up_atoms)
+        # convert the pressure into force on each particle
+        box_x, box_y, box_z = pdb.getTopology().getUnitCellDimensions()
+        area_xy = box_x * box_y
+        force_on_group = (args.group_up_pressure * bar * area_xy * AVOGADRO_CONSTANT_NA).in_units_of(kilojoule_per_mole / nanometer)
+        cent_force.addPerBondParameter('k')
+        g1 = cent_force.addGroup(particles1)
+        cent_force.addBond([g1],[force_on_group])
+        system.addForce(cent_force)
+    if args.group_down_atoms:
+        logger.info("Adding downward pressure %f bar on Group %s"%(args.group_down_pressure,args.group_down_atoms))
+        cent_force = openmm.CustomCentroidBondForce(1, "k*z1")
+        particles1 = uncommadash(args.group_down_atoms)
+        # convert the pressure into force on each particle
+        box_x, box_y, box_z = pdb.getTopology().getUnitCellDimensions()
+        area_xy = box_x * box_y
+        force_on_group = (args.group_down_pressure * bar * area_xy * AVOGADRO_CONSTANT_NA).in_units_of(kilojoule_per_mole / nanometer)
+        cent_force.addPerBondParameter('k')
+        g1 = cent_force.addGroup(particles1)
+        cent_force.addBond([g1],[force_on_group])
+        system.addForce(cent_force)
 
+    #===========================================#
+    #| Add Force to Block Ions                 |#
+    #===========================================#
+    if args.block_z_atoms:
+        logger.info("Blocking atoms %s from crossing the plane z = %f nm." %(args.block_z_atoms, args.block_z_pos))
+        # a barrier force with height 10000, and width 0.25 nm.
+        ex_force = openmm.CustomExternalForce("10000.0*exp(-100.0*(z-z0)^2)")
+        ex_force.addGlobalParameter('z0', args.block_z_pos)
+        for atom_idx in uncommadash(args.block_z_atoms):
+            ex_force.addParticle(atom_idx)
+        # Add force to system
+        system.addForce(ex_force)
+
+    #===========================================#
+    #| Balance the total charge of the system  |#
+    #===========================================#
+    if args.balance_charge_atoms:
+        balance_charge_atoms(system, args.balance_charge_atoms)
 
 #====================================#
 #| Temperature and pressure control |#
@@ -1042,10 +1283,13 @@ def add_barostat():
         elif pbc:
             logger.info("This is a constant pressure (NPT) run at %.2f atm pressure" % args.pressure)
             logger.info("Adding Monte Carlo barostat with volume adjustment interval %i" % args.nbarostat)
-            logger.info("Anisotropic box scaling is %s" % ("ON" if args.anisotropic else "OFF"))
-            if args.anisotropic:
-                logger.info("Only the Z-axis will be adjusted")
-                barostat = MonteCarloAnisotropicBarostat(Vec3(args.pressure*atmospheres, args.pressure*atmospheres, args.pressure*atmospheres), args.temperature*kelvin, False, False, True, args.nbarostat)
+            logger.info("Anisotropic box scaling is %s" % args.anisotropic)
+            if args.anisotropic != None:
+                #logger.info("Only the Z-axis will be adjusted")
+                adjust_x = 'x' in args.anisotropic
+                adjust_y = 'y' in args.anisotropic
+                adjust_z = 'z' in args.anisotropic
+                barostat = MonteCarloAnisotropicBarostat(Vec3(args.pressure*atmospheres, args.pressure*atmospheres, args.pressure*atmospheres), args.temperature*kelvin, adjust_x, adjust_y, adjust_z, args.nbarostat)
             else:
                 barostat = MonteCarloBarostat(args.pressure * atmospheres, args.temperature * kelvin, args.nbarostat)
             system.addForce(barostat)
@@ -1116,21 +1360,12 @@ else:
 #==================================#
 # if args.platform != None:
 logger.info("Setting Platform to %s" % str(args.platform))
-try:
-    platform = Platform.getPlatformByName(args.platform)
-except:
-    logger.info("Warning: %s platform not found, going to Reference platform \x1b[91m(slow)\x1b[0m" % args.platform)
-    args.force_active('platform',"Reference","The %s platform was not found." % args.platform)
-    platform = Platform.getPlatformByName("Reference")
+platform = Platform.getPlatformByName(args.platform)
 
 if 'device' in args.ActiveOptions:
     # The device may be set using an environment variable or the input file.
-    if os.environ.has_key('CUDA_DEVICE'):
-        device = os.environ.get('CUDA_DEVICE',str(args.device))
-    elif os.environ.has_key('CUDA_DEVICE_INDEX'):
-        device = os.environ.get('CUDA_DEVICE_INDEX',str(args.device))
-    else:
-        device = str(args.device)
+    device = os.environ.get('CUDA_DEVICE_INDEX', str(args.device))
+    device = os.environ.get('CUDA_DEVICE', device)
     if device != None:
         logger.info("Setting Device to %s" % str(device))
         #platform.setPropertyDefaultValue("CudaDevice", device)
@@ -1140,8 +1375,8 @@ if 'device' in args.ActiveOptions:
         logger.info("Using the default (fastest) device")
 else:
     logger.info("Using the default (fastest) device")
-if "CudaPrecision" in platform.getPropertyNames():
-    platform.setPropertyDefaultValue("CudaPrecision", args.cuda_precision)
+if args.platform == 'CUDA':
+    platform.setPropertyDefaultValue("Precision", args.precision)
 # else:
 #     logger.info("Using the default Platform")
 
@@ -1179,10 +1414,13 @@ logger.info("--== System Information ==--")
 logger.info("Number of particles   : %i" % simulation.context.getSystem().getNumParticles())
 logger.info("Number of constraints : %i" % simulation.context.getSystem().getNumConstraints())
 logger.info("Total system mass     : %.2f amu" % (compute_mass(system)/amu))
+logger.info("Total system charge   : %.5f elementary charge" % (compute_total_charge(system)/elementary_charge))
 for f in simulation.context.getSystem().getForces():
     if f.__class__.__name__ == 'AmoebaMultipoleForce':
         logger.info("AMOEBA PME order      : %i" % f.getPmeBSplineOrder())
-        logger.info("AMOEBA PME grid       : %s" % str(f.getPmeGridDimensions()))
+        pme_params = f.getPMEParametersInContext(simulation.context)
+        logger.info("AMOEBA PME grid       : %s" % str(pme_params[1:]))
+        logger.info("AMOEBA PME aEwald     : %.5f" % pme_params[0])
     if f.__class__.__name__ == 'NonbondedForce':
         method_names = ["NoCutoff", "CutoffNonPeriodic", "CutoffPeriodic", "Ewald", "PME"]
         logger.info("Nonbonded method      : %s" % method_names[f.getNonbondedMethod()])
@@ -1198,15 +1436,15 @@ for f in simulation.context.getSystem().getForces():
 
 # Print the sample input file here.
 for line in args.record():
-    print line
+    print(line)
 
 #===============================================================#
 #| Run dynamics for equilibration, or load restart information |#
 #===============================================================#
 if os.path.exists(args.restart_filename) and args.read_restart:
-    print "Restarting simulation from the restart file."
+    print("Restarting simulation from the restart file.")
     # Load information from the restart file.
-    r_positions, r_velocities, r_boxes = pickle.load(open(args.restart_filename))
+    r_positions, r_velocities, r_boxes = pickle.load(open(args.restart_filename, 'rb'))
     # NOTE: Periodic box vectors must be set FIRST
     if pbc:
         simulation.context.setPeriodicBoxVectors(r_boxes[0] * nanometer,r_boxes[1] * nanometer, r_boxes[2] * nanometer)
@@ -1241,7 +1479,7 @@ if os.path.exists(args.restart_filename) and args.read_restart:
 else:
     # Set initial positions.
     simulation.context.setPositions(modeller.positions)
-    print "Initial potential is:", simulation.context.getState(getEnergy=True).getPotentialEnergy()
+    print("Initial potential is:", simulation.context.getState(getEnergy=True).getPotentialEnergy())
     if args.integrator != 'mtsvvvr':
         eda = EnergyDecomposition(simulation)
         eda_kcal = OrderedDict([(i, "%10.4f" % (j/4.184)) for i, j in eda.items()])
@@ -1249,11 +1487,11 @@ else:
 
     # Minimize the energy.
     if args.minimize:
-        print "Minimization start, the energy is:", simulation.context.getState(getEnergy=True).getPotentialEnergy()
+        print("Minimization start, the energy is:", simulation.context.getState(getEnergy=True).getPotentialEnergy())
         simulation.minimizeEnergy()
-        print "Minimization done, the energy is", simulation.context.getState(getEnergy=True).getPotentialEnergy()
+        print("Minimization done, the energy is", simulation.context.getState(getEnergy=True).getPotentialEnergy())
         positions = simulation.context.getState(getPositions=True).getPositions()
-        print "Minimized geometry is written to 'minimized.pdb'"
+        print("Minimized geometry is written to 'minimized.pdb'")
         PDBFile.writeModel(modeller.topology, positions, open('minimized.pdb','w'))
     # Assign velocities.
     if args.gentemp > 0.0:
@@ -1331,6 +1569,6 @@ prodtime = time.time() - t1
 #=============================================#
 logger.info('Getting statistics for the production run.')
 simulation.reporters[0].analyze(simulation)
-print "Total wall time: % .4f seconds" % (time.time() - t0)
-print "Production wall time: % .4f seconds" % (prodtime)
-print "Simulation speed: % .6f ns/day" % (86400*args.production*args.timestep*femtosecond/nanosecond/(prodtime))
+print("Total wall time: % .4f seconds" % (time.time() - t0))
+print("Production wall time: % .4f seconds" % (prodtime))
+print("Simulation speed: % .6f ns/day" % (86400*args.production*args.timestep*femtosecond/nanosecond/(prodtime)))
