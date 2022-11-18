@@ -752,7 +752,7 @@ class SimulationOptions(object):
         self.set_active('cent_res_atoms',None,str,"Set the indices of the atoms whose center will be restrained to their original position.", depend=(self.cent_res_k_per_atom > 0),msg="Restrain force constants k must > 0")
         self.set_active('cent_res_atoms2',None,str,"Set the indices of the atoms whose center will be restrained to their original position.", depend=(self.cent_res_k_per_atom > 0),msg="Restrain force constants k must > 0")
         self.set_active('cent_res_xy_atoms',None,str,"Set the indices of the atoms whose center on the x and y direction will be restrained to their original position.", depend=(self.cent_res_k_per_atom > 0),msg="Restrain force constants k must > 0")
-        self.set_active('remove_cm_motion',True,bool,"Remove Center of Mass Motion every Step.")
+        self.set_active('remove_cm_motion',True,bool,"Add a center-of-mass motion remover to the system.")
         self.set_active('group_up_pressure',1.0,float,"Pressue on the group of atoms along z direction. Unit: bar")
         self.set_active('group_up_atoms',None,str,"Set the indices of the atoms in Group to be pushed upwards.", depend=(self.group_up_pressure>0), msg="Group Up Pressure must > 0")
         self.set_active('group_down_pressure',1.0,float,"Pressue on the group of atoms along -z direction. Unit: bar")
@@ -1042,6 +1042,7 @@ if Deserialize:
     args.deactivate('rigidwater', "Specified by the System XML file")
     args.deactivate('ewald_error_tolerance', "Specified by the System XML file")
     args.deactivate('dispersion_correction', "Specified by the System XML file")
+    modelr = Modeller(pdb.topology, pdb.positions)
 else:
     settings = []
     # This creates a system from a force field XML file.
@@ -1128,9 +1129,9 @@ else:
 
     logger.info("Now setting up the System with the following system settings:")
     printcool_dictionary(dict(settings),title="OpenMM system object will be set up\n using these options:")
-    modeller = Modeller(pdb.topology, pdb.positions)
-    modeller.addExtraParticles(forcefield)
-    system = forcefield.createSystem(modeller.topology, **dict(settings))
+    modelr = Modeller(pdb.topology, pdb.positions)
+    modelr.addExtraParticles(forcefield)
+    system = forcefield.createSystem(modelr.topology, **dict(settings))
     # set the nonbondedMethod one by one if we need mixed settings
     if mixed_nonbondedMethod:
         for f in system.getForces():
@@ -1397,9 +1398,9 @@ for i in range(nfrc):
             f.setUseSwitchingFunction(True)
             f.setSwitchingDistance(args.switch_distance)
 if args.platform != None:
-    simulation = Simulation(modeller.topology, system, integrator, platform)
+    simulation = Simulation(modelr.topology, system, integrator, platform)
 else:
-    simulation = Simulation(modeller.topology, system, integrator)
+    simulation = Simulation(modelr.topology, system, integrator)
 # Serialize the system if we want.
 if args.serialize != 'None' and args.serialize != None:
     logger.info("Serializing the system")
@@ -1478,7 +1479,7 @@ if os.path.exists(args.restart_filename) and args.read_restart:
     first = 0
 else:
     # Set initial positions.
-    simulation.context.setPositions(modeller.positions)
+    simulation.context.setPositions(modelr.positions)
     print("Initial potential is:", simulation.context.getState(getEnergy=True).getPotentialEnergy())
     if args.integrator != 'mtsvvvr':
         eda = EnergyDecomposition(simulation)
@@ -1492,7 +1493,7 @@ else:
         print("Minimization done, the energy is", simulation.context.getState(getEnergy=True).getPotentialEnergy())
         positions = simulation.context.getState(getPositions=True).getPositions()
         print("Minimized geometry is written to 'minimized.pdb'")
-        PDBFile.writeModel(modeller.topology, positions, open('minimized.pdb','w'))
+        PDBFile.writeModel(modelr.topology, positions, open('minimized.pdb','w'))
     # Assign velocities.
     if args.gentemp > 0.0:
         logger.info("Generating velocities corresponding to Maxwell distribution at %.2f K" % args.gentemp)
