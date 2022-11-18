@@ -740,7 +740,7 @@ class SimulationOptions(object):
                         depend=(self.dcd_report_interval > 0), msg="dcd_report_interval needs to be set to a whole number.")
         self.set_active('eda_report_interval',0,int,"Specify a timestep interval for Energy reporter.", clash=(self.integrator=="mtsvvvr"), msg="EDA reporter incompatible with MTS integrator.")
         self.set_active('eda_report_filename',"output_%s.eda" % basename,str,"Specify an file name for writing output Energy file.",
-                        depend=(self.eda_report_interval > 0), msg="eda_report_interval needs to be set to a whole number.")
+                        depend=(self.eda_report_interval is not None and self.eda_report_interval > 0), msg="eda_report_interval needs to be set to a whole number.")
         if self.pmegrid != None:
             assert len(self.pmegrid) == 3, "The pme argument must be a length-3 list of integers"
         self.set_active('tinkerpath',None,str,"Specify a path for TINKER executables for running AMOEBA validation.")
@@ -834,7 +834,7 @@ class ProgressReport(object):
             stdev  = np.std(dmean)
             g      = statisticalInefficiency(dmean)
             stderr = np.sqrt(g) * stdev / np.sqrt(len(data))
-            acorr  = 0.5*(g-1)*self._interval/picosecond
+            acorr  = 0.5*(g-1)*self._interval/nanosecond
             # Perform a linear fit.
             x      = np.linspace(0, 1, len(data))
             z      = np.polyfit(x, data, 1)
@@ -844,9 +844,9 @@ class ProgressReport(object):
             # Compute the driftless standard deviation.
             stdev1 = np.std(data-p)
             PrintDict[datatype+" (%s)" % self._units[datatype]] = "%13.5f %13.5e %13.5f %13.5f %13.5f %13.5e" % (mean, stdev, stderr, acorr, drift, stdev1)
-        printcool_dictionary(PrintDict,"Summary statistics - total simulation time %.3f ps:\n%-26s %13s %13s %13s %13s %13s %13s\n%-26s %13s %13s %13s %13s %13s %13s" % (self.run_time/picosecond,
+        printcool_dictionary(PrintDict,"Summary statistics - total simulation time %.3f ns:\n%-26s %13s %13s %13s %13s %13s %13s\n%-26s %13s %13s %13s %13s %13s %13s" % (self.run_time/nanosecond,
                                                                                                                                                                           "", "", "", "", "", "", "Stdev",
-                                                                                                                                                                          "Quantity", "Mean", "Stdev", "Stderr", "Acorr(ps)", "Drift", "(NoDrift)"),keywidth=30)
+                                                                                                                                                                          "Quantity", "Mean", "Stdev", "Stderr", "Acorr(ns)", "Drift", "(NoDrift)"),keywidth=30)
     def report(self, simulation, state):
         # Compute total mass in grams.
         mass = compute_mass(simulation.system).in_units_of(gram / mole) /  AVOGADRO_CONSTANT_NA
@@ -879,14 +879,14 @@ class ProgressReport(object):
             volume = compute_volume(box_vectors) / self._units['volume']
             density = (mass / compute_volume(box_vectors)) / self._units['density']
             if self._initial:
-                logger.info("%8s %17s %15s %13s %13s %13s %13s %13s %13s %13s" % ('Progress', 'E.T.A', 'Speed (ns/day)', 'Time(ps)', 'Temp(K)', 'Kin(kJ)', 'Pot(kJ)', 'Ene(kJ)', 'Vol(nm3)', 'Rho(kg/m3)'))
-            logger.info("%7.3f%% %17s %15.5f %13.5f %13.5f %13.5f %13.5f %13.5f %13.5f %13.5f" % (pct, GetTime(timeleft), nsday, self.run_time / picoseconds, temperature, kinetic, potential, energy, volume, density))
+                logger.info("%8s %17s %15s %13s %13s %13s %13s %13s %13s %13s" % ('Progress', 'E.T.A', 'Speed (ns/day)', 'Time(ns)', 'Temp(K)', 'Kin(kJ)', 'Pot(kJ)', 'Ene(kJ)', 'Vol(nm3)', 'Rho(kg/m3)'))
+            logger.info("%7.3f%% %17s %15.5f %13.5f %13.5f %13.5f %13.5f %13.5f %13.5f %13.5f" % (pct, GetTime(timeleft), nsday, self.run_time / nanoseconds, temperature, kinetic, potential, energy, volume, density))
             self._data['volume'].append(volume)
             self._data['density'].append(density)
         else:
             if self._initial:
-                logger.info("%8s %17s %13s %13s %13s %13s %13s" % ('Progress', 'E.T.A', 'Time(ps)', 'Temp(K)', 'Kin(kJ)', 'Pot(kJ)', 'Ene(kJ)'))
-            logger.info("%7.3f%% %17s %13.5f %13.5f %13.5f %13.5f %13.5f" % (pct, GetTime(timeleft), self.run_time / picoseconds, temperature, kinetic, potential, energy))
+                logger.info("%8s %17s %13s %13s %13s %13s %13s" % ('Progress', 'E.T.A', 'Time(ns)', 'Temp(K)', 'Kin(kJ)', 'Pot(kJ)', 'Ene(kJ)'))
+            logger.info("%7.3f%% %17s %13.5f %13.5f %13.5f %13.5f %13.5f" % (pct, GetTime(timeleft), self.run_time / nanoseconds, temperature, kinetic, potential, energy))
         self._data['energy'].append(energy)
         self._data['kinetic'].append(kinetic)
         self._data['potential'].append(potential)
@@ -917,8 +917,8 @@ class EnergyReporter(object):
         self.run_time = float(simulation.currentStep - self._first) * args.timestep * femtosecond
         self.eda = EnergyDecomposition(simulation)
         if self._initial:
-            print(' '.join(["%25s" % i for i in ['#Time(ps)'] + list(self.eda.keys())]), file=self._out)
-        print(' '.join(["%25.10f" % i for i in [self.run_time/picosecond] + list(self.eda.values())]), file=self._out)
+            print(' '.join(["%25s" % i for i in ['#Time(ns)'] + list(self.eda.keys())]), file=self._out)
+        print(' '.join(["%25.10f" % i for i in [self.run_time/nanosecond] + list(self.eda.values())]), file=self._out)
         self._initial = False
 
     def __del__(self):
@@ -1128,9 +1128,9 @@ else:
                 logger.info("CustomNonbondedForce Detected with PME specified. nonbondedMethod will be set individually.")
 
     logger.info("Now setting up the System with the following system settings:")
-    printcool_dictionary(dict(settings),title="OpenMM system object will be set up\n using these options:")
     modelr = Modeller(pdb.topology, pdb.positions)
     modelr.addExtraParticles(forcefield)
+    printcool_dictionary(dict(settings),title="Keyword arguments to forcefield.createSystem():")
     system = forcefield.createSystem(modelr.topology, **dict(settings))
     # set the nonbondedMethod one by one if we need mixed settings
     if mixed_nonbondedMethod:
@@ -1499,7 +1499,7 @@ else:
         logger.info("Generating velocities corresponding to Maxwell distribution at %.2f K" % args.gentemp)
         simulation.context.setVelocitiesToTemperature(args.gentemp * kelvin)
     # Equilibrate.
-    logger.info("--== Equilibrating (%i steps, %.2f ps) ==--" % (args.equilibrate, args.equilibrate * args.timestep * femtosecond / picosecond))
+    logger.info("--== Equilibrating (%i steps, %.2f ns) ==--" % (args.equilibrate, args.equilibrate * args.timestep * femtosecond / nanosecond))
     if args.report_interval > 0:
         # Append the ProgressReport for equilibration run.
         simulation.reporters.append(ProgressReport(sys.stdout, args.report_interval, simulation, args.equilibrate))
@@ -1515,7 +1515,7 @@ else:
 #============================#
 #| Production MD simulation |#
 #============================#
-logger.info("--== Production (%i steps, %.2f ps) ==--" % (args.production, args.production * args.timestep * femtosecond / picosecond))
+logger.info("--== Production (%i steps, %.2f ns) ==--" % (args.production, args.production * args.timestep * femtosecond / nanosecond))
 
 #===========================================#
 #| Add reporters for production simulation |#
