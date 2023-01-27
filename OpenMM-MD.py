@@ -1417,7 +1417,7 @@ logger.info("Number of constraints : %i" % simulation.context.getSystem().getNum
 logger.info("Total system mass     : %.2f amu" % (compute_mass(system)/amu))
 logger.info("Total system charge   : %.5f elementary charge" % (compute_total_charge(system)/elementary_charge))
 for f in simulation.context.getSystem().getForces():
-    if f.__class__.__name__ == 'AmoebaMultipoleForce':
+    if f.__class__.__name__ == 'AmoebaMultipoleForce' and pbc:
         logger.info("AMOEBA PME order      : %i" % f.getPmeBSplineOrder())
         pme_params = f.getPMEParametersInContext(simulation.context)
         logger.info("AMOEBA PME grid       : %s" % str(pme_params[1:]))
