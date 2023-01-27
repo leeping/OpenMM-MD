@@ -12,7 +12,8 @@ M[0].write(".temp.pdb")
 
 pdb = PDBFile(".temp.pdb")
 
-ff = ForceField('amber-fb15.xml', 'tip3pfb.xml')
+ff = ForceField(*sys.argv[2:])
+#ff = ForceField('amber-fb15.xml', 'tip3pfb.xml')
 
 def make_cef(k):
     # Create a Custom Force
@@ -33,7 +34,7 @@ def make_cef(k):
 
 pos = pdb.positions
 plat = Platform.getPlatformByName('CUDA')
-plat.setPropertyDefaultValue('CudaDeviceIndex','1')
+#plat.setPropertyDefaultValue('CudaDeviceIndex','1')
 for k in [100000, 10000, 1000]:
     system = ff.createSystem(pdb.topology, nonbondedMethod=PME, constraints=HBonds, rigidWater=True)
     cef = make_cef(k)
