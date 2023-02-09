@@ -880,13 +880,13 @@ class ProgressReport(object):
             density = (mass / compute_volume(box_vectors)) / self._units['density']
             if self._initial:
                 logger.info("%8s %17s %15s %13s %13s %13s %13s %13s %13s %13s" % ('Progress', 'E.T.A', 'Speed (ns/day)', 'Time(ns)', 'Temp(K)', 'Kin(kJ)', 'Pot(kJ)', 'Ene(kJ)', 'Vol(nm3)', 'Rho(kg/m3)'))
-            logger.info("%7.3f%% %17s %15.5f %13.5f %13.5f %13.5f %13.5f %13.5f %13.5f %13.5f" % (pct, GetTime(timeleft), nsday, self.run_time / nanoseconds, temperature, kinetic, potential, energy, volume, density))
+            logger.info("%7.3f%% %17s %15.3f %13.5f %13.5f %13.5f %13.5f %13.5f %13.5f %13.5f" % (pct, GetTime(timeleft), nsday, self.run_time / nanoseconds, temperature, kinetic, potential, energy, volume, density))
             self._data['volume'].append(volume)
             self._data['density'].append(density)
         else:
             if self._initial:
-                logger.info("%8s %17s %13s %13s %13s %13s %13s" % ('Progress', 'E.T.A', 'Time(ns)', 'Temp(K)', 'Kin(kJ)', 'Pot(kJ)', 'Ene(kJ)'))
-            logger.info("%7.3f%% %17s %13.5f %13.5f %13.5f %13.5f %13.5f" % (pct, GetTime(timeleft), self.run_time / nanoseconds, temperature, kinetic, potential, energy))
+                logger.info("%8s %17s %15s %13s %13s %13s %13s %13s" % ('Progress', 'E.T.A', 'Speed (ns/day)', 'Time(ns)', 'Temp(K)', 'Kin(kJ)', 'Pot(kJ)', 'Ene(kJ)'))
+            logger.info("%7.3f%% %17s %15.3f %13.5f %13.5f %13.5f %13.5f %13.5f" % (pct, GetTime(timeleft), nsday, self.run_time / nanoseconds, temperature, kinetic, potential, energy))
         self._data['energy'].append(energy)
         self._data['kinetic'].append(kinetic)
         self._data['potential'].append(potential)
