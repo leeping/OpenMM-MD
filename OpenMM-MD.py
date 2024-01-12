@@ -1078,13 +1078,14 @@ else:
             args.deactivate('vdw_switch', "Deactivated because nonbonded method forced to NoCutoff")
             args.deactivate('switch_distance', "Deactivated because nonbonded method forced to NoCutoff")
             settings.append(('nonbondedMethod', NoCutoff))
-        if args.polarization_direct:
-            logger.info("Setting direct polarization")
-            args.deactivate('polar_eps', "Not relevant for direct polarization")
-            settings.append(('polarization', 'direct'))
-        else:
-            logger.info("Setting mutual polarization with tolerance % .2e" % args.polar_eps)
-            settings.append(('mutualInducedTargetEpsilon', args.polar_eps))
+        if any(['AmoebaMultipoleForce' in f.__class__.__name__ for f in forcefield._forces]):
+            if args.polarization_direct:
+                logger.info("Setting direct polarization")
+                args.deactivate('polar_eps', "Not relevant for direct polarization")
+                settings.append(('polarization', 'direct'))
+            else:
+                logger.info("Setting mutual polarization with tolerance % .2e" % args.polar_eps)
+                settings.append(('mutualInducedTargetEpsilon', args.polar_eps))
     else:
         logger.info("Detected non-AMOEBA system")
         if pbc:
