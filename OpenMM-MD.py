@@ -42,9 +42,14 @@ import shutil
 import numpy as np
 from re import sub
 from collections import namedtuple, defaultdict, OrderedDict
-from simtk.unit import *
-from simtk.openmm import *
-from simtk.openmm.app import *
+try:
+    from openmm.unit import *
+    from openmm import *
+    from openmm.app import *
+except ImportError:
+    from simtk.unit import *
+    from simtk.openmm import *
+    from simtk.openmm.app import *
 import warnings
 # Suppress warnings from PDB reading.
 warnings.simplefilter("ignore")
@@ -401,6 +406,40 @@ def MTSVVVRIntegrator(temperature, collision_rate, timestep, system, ninnersteps
 
     return integrator
 
+def MTSLangevinIntegrator(temperature, collision_rate, timestep, system, ninnersteps=4):
+    """
+    New in OpenMM 7.5 and up.
+    MTSLangevinIntegrator implements the BAOAB-RESPA multiple time step algorithm for constant temperature dynamics.
+
+    ARGUMENTS
+
+    temperature (numpy.unit.Quantity compatible with kelvin) - the temperature
+    collision_rate (numpy.unit.Quantity compatible with 1/picoseconds) - the collision rate
+    timestep (numpy.unit.Quantity compatible with femtoseconds) - the integration timestep
+    system (simtk.openmm.System) - system whose forces will be partitioned
+    ninnersteps (int) - number of inner timesteps (default: 4)
+
+    RETURNS
+
+    integrator (openmm.MTSLangevinIntegrator) - a multiple timestep Langevin integrator
+
+    """
+    # Multiple timestep Langevin integrator.
+    for i in system.getForces():
+        if i.__class__.__name__ in ["NonbondedForce", "CustomNonbondedForce", "AmoebaVdwForce", "AmoebaMultipoleForce"]:
+            # Slow force.
+            print(i.__class__.__name__, "is a Slow Force")
+            i.setForceGroup(1)
+        else:
+            print(i.__class__.__name__, "is a Fast Force")
+            # Fast force.
+            i.setForceGroup(0)
+
+    import openmm
+    
+    integrator = openmm.MTSLangevinIntegrator(temperature, collision_rate, timestep, [(0,ninnersteps), (1,1)])
+    return integrator
+
 def bak(fnm):
     oldfnm = fnm
     if os.path.exists(oldfnm):
@@ -677,11 +716,11 @@ class SimulationOptions(object):
                     val = line.replace(s[0],'',1).strip()
                     self.UserOptions[key] = val
         # Now go through the logic of determining which options are activated.
-        self.set_active('integrator','verlet',str,"Molecular dynamics integrator",allowed=["verlet","langevin","velocity-verlet","mtsvvvr"])
+        self.set_active('integrator','verlet',str,"Molecular dynamics integrator",allowed=["verlet","langevin","langevinmiddle","velocity-verlet","mtsvvvr","mtslangevin"])
         self.set_active('minimize',False,bool,"Specify whether to minimize the energy before running dynamics.")
         self.set_active('timestep',1.0,float,"Time step in femtoseconds.")
         self.set_active('hydrogen_mass',1.0,float,"Hydrogen mass in amu (set to 4 to enable 4 fs time step).")
-        self.set_active('innerstep',0.5,float,"Inner time step in femtoseconds for MTS integrator.",depend=(self.integrator=="mtsvvvr"))
+        self.set_active('innerstep',0.5,float,"Inner time step in femtoseconds for MTS integrator.",depend=(self.integrator in ["mtsvvvr", "mtslangevin"]))
         self.set_active('restart_filename','restart.p',str,"Restart information will be read from / written to this file (will be backed up).")
         self.set_active('read_restart',True,bool,"Restart simulation from the restart file.",
                         depend=(os.path.exists(self.restart_filename)), msg="Cannot restart; file specified by restart_filename does not exist.")
@@ -690,11 +729,11 @@ class SimulationOptions(object):
         self.set_active('production',1000,int,"Number of steps in production run.")
         self.set_active('report_interval',100,int,"Number of steps between every progress report.")
         self.set_active('temperature',0.0,float,"Simulation temperature for Langevin integrator or Andersen thermostat.")
-        if self.temperature <= 0.0 and self.integrator in ["langevin", "mtsvvvr"]:
-            raise Exception("You need to set a finite temperature if using the Langevin or MTS-VVVR integrator!")
+        if self.temperature <= 0.0 and self.integrator in ["langevin", "langevinmiddle", "mtsvvvr", "mtslangevin"]:
+            raise Exception("You need to set a finite temperature if using a Langevin-type integrator!")
         self.set_active('gentemp',self.temperature,float,"Specify temperature for generating velocities")
         self.set_active('collision_rate',0.1,float,"Collision frequency for Langevin integrator or Andersen thermostat in ps^-1.",
-                        depend=(self.integrator in ["langevin", "mtsvvvr"] or self.temperature != 0.0),
+                        depend=(self.integrator in ["langevin", "langevinmiddle", "mtsvvvr", "mtslangevin"] or self.temperature != 0.0),
                         msg="We're not running a constant temperature simulation")
         self.set_active('pressure',0.0,float,"Simulation pressure; set a positive number to activate.",
                         clash=(self.temperature <= 0.0),
@@ -738,7 +777,7 @@ class SimulationOptions(object):
         self.set_active('dcd_report_interval',0,int,"Specify a timestep interval for DCD reporter.")
         self.set_active('dcd_report_filename',"output_%s.dcd" % basename,str,"Specify an file name for writing output DCD file.",
                         depend=(self.dcd_report_interval > 0), msg="dcd_report_interval needs to be set to a whole number.")
-        self.set_active('eda_report_interval',0,int,"Specify a timestep interval for Energy reporter.", clash=(self.integrator=="mtsvvvr"), msg="EDA reporter incompatible with MTS integrator.")
+        self.set_active('eda_report_interval',0,int,"Specify a timestep interval for Energy reporter.", clash=(self.integrator in ["mtsvvvr", "mtslangevin"]), msg="EDA reporter incompatible with MTS integrator.")
         self.set_active('eda_report_filename',"output_%s.eda" % basename,str,"Specify an file name for writing output Energy file.",
                         depend=(self.eda_report_interval is not None and self.eda_report_interval > 0), msg="eda_report_interval needs to be set to a whole number.")
         if self.pmegrid != None:
@@ -880,7 +919,7 @@ class ProgressReport(object):
             density = (mass / compute_volume(box_vectors)) / self._units['density']
             if self._initial:
                 logger.info("%8s %17s %15s %13s %13s %13s %13s %13s %13s %13s" % ('Progress', 'E.T.A', 'Speed (ns/day)', 'Time(ns)', 'Temp(K)', 'Kin(kJ)', 'Pot(kJ)', 'Ene(kJ)', 'Vol(nm3)', 'Rho(kg/m3)'))
-            logger.info("%7.3f%% %17s %15.3f %13.5f %13.5f %13.5f %13.5f %13.5f %13.5f %13.5f" % (pct, GetTime(timeleft), nsday, self.run_time / nanoseconds, temperature, kinetic, potential, energy, volume, density))
+            logger.info("%7.3f%% %17s %15.3f %13.6f %13.5f %13.5f %13.5f %13.5f %13.5f %13.5f" % (pct, GetTime(timeleft), nsday, self.run_time / nanoseconds, temperature, kinetic, potential, energy, volume, density))
             self._data['volume'].append(volume)
             self._data['density'].append(density)
         else:
@@ -1273,8 +1312,8 @@ if Deserialize:
             args.deactivate("temperature", msg="Specified by the System XML file")
             args.deactivate("collision_rate", msg="Specified by the System XML file")
             logger.info("The system XML file contains an Andersen thermostat at %.2f K temperature" % (f.getDefaultTemperature()/kelvin))
-            if args.integrator in ["langevin", "mtsvvvr"]:
-                raise Exception('Cannot create a Langevin or MTS-VVVR integrator with existing temperature control! Exiting...')
+            if args.integrator in ["langevin", "langevinmiddle", "mtsvvvr", "mtslangevin"]:
+                raise Exception('Cannot create a Langevin-type integrator with existing temperature control! Exiting...')
 
 def add_barostat():
     if sysxml_baro:
@@ -1333,15 +1372,23 @@ else:
         integrator = NVEIntegrator()
     else:
         logger.info("This is a constant temperature run at %.2f K" % args.temperature)
-        logger.info("The stochastic thermostat collision frequency is %.2f ps^-1" % args.collision_rate)
+        logger.info("The stochastic thermostat collision frequency is %.1e ps^-1" % args.collision_rate)
         if args.integrator == "langevin":
             logger.info("Creating a Langevin integrator with %.2f fs timestep." % args.timestep)
             integrator = LangevinIntegrator(args.temperature * kelvin, args.collision_rate / picosecond, args.timestep * femtosecond)
+        elif args.integrator == "langevinmiddle":
+            logger.info("Creating a LangevinMiddleIntegrator with %.2f fs timestep." % args.timestep)
+            integrator = LangevinMiddleIntegrator(args.temperature * kelvin, args.collision_rate / picosecond, args.timestep * femtosecond)
         elif args.integrator == "mtsvvvr":
-            logger.info("Creating a multiple timestep Langevin integrator with %.2f / %.2f fs outer/inner timestep." % (args.timestep, args.innerstep))
+            logger.info("Creating a multiple timestep Langevin integrator (via CustomIntegrator) with %.2f / %.2f fs outer/inner timestep." % (args.timestep, args.innerstep))
             if int(args.timestep / args.innerstep) != args.timestep / args.innerstep:
                 raise Exception("The inner step must be an even subdivision of the time step.")
             integrator = MTSVVVRIntegrator(args.temperature * kelvin, args.collision_rate / picosecond, args.timestep * femtosecond, system, int(args.timestep / args.innerstep))
+        elif args.integrator == "mtslangevin":
+            logger.info("Creating a multiple timestep Langevin integrator (via openmm.MTSLangevinIntegrator) with %.2f / %.2f fs outer/inner timestep." % (args.timestep, args.innerstep))
+            if int(args.timestep / args.innerstep) != args.timestep / args.innerstep:
+                raise Exception("The inner step must be an even subdivision of the time step.")
+            integrator = MTSLangevinIntegrator(args.temperature * kelvin, args.collision_rate / picosecond, args.timestep * femtosecond, system, int(args.timestep / args.innerstep))
         else:
             integrator = NVEIntegrator()
             thermostat = AndersenThermostat(args.temperature * kelvin, args.collision_rate / picosecond)
@@ -1388,7 +1435,7 @@ if args.platform == 'CUDA':
 logger.info("Creating the Simulation object")
 # Get the number of forces and set each force to a different force group number.
 nfrc = system.getNumForces()
-if args.integrator != 'mtsvvvr':
+if args.integrator not in ['mtsvvvr', 'mtslangevin']:
     for i in range(nfrc):
         system.getForce(i).setForceGroup(i)
 for i in range(nfrc):
@@ -1447,11 +1494,19 @@ if os.path.exists(args.restart_filename) and args.read_restart:
     print("Restarting simulation from the restart file.")
     # Load information from the restart file.
     r_positions, r_velocities, r_boxes = pickle.load(open(args.restart_filename, 'rb'))
+    # Can uncomment this to write in NumPy format.. 
+    # r_positions_npy = np.array(r_positions)
+    # r_velocities_npy = np.array(r_velocities)
+    # r_boxes_npy = np.array(r_boxes)
+    # np.savetxt('r_positions.txt', r_positions_npy)
+    # np.savetxt('r_velocities.txt', r_velocities_npy)
+    # np.savetxt('r_boxes.txt', r_boxes_npy)
+    # sys.exit()
     # NOTE: Periodic box vectors must be set FIRST
     if pbc:
         simulation.context.setPeriodicBoxVectors(r_boxes[0] * nanometer,r_boxes[1] * nanometer, r_boxes[2] * nanometer)
     simulation.context.setPositions(r_positions * nanometer)
-    if args.integrator not in ["velocity-verlet", "mtsvvvr"]:
+    if args.integrator not in ["velocity-verlet", "mtsvvvr", "mtslangevin"]:
         # We will attempt to reconstruct the leapfrog velocities.  First obtain initial velocities.
         v0 = r_velocities * nanometer / picosecond
         frc = simulation.context.getState(getForces=True).getForces()
@@ -1482,7 +1537,7 @@ else:
     # Set initial positions.
     simulation.context.setPositions(modelr.positions)
     print("Initial potential is:", simulation.context.getState(getEnergy=True).getPotentialEnergy())
-    if args.integrator != 'mtsvvvr':
+    if args.integrator not in ['mtsvvvr', 'mtslangevin']:
         eda = EnergyDecomposition(simulation)
         eda_kcal = OrderedDict([(i, "%10.4f" % (j/4.184)) for i, j in eda.items()])
         printcool_dictionary(eda_kcal, title="Energy Decomposition (kcal/mol)")
