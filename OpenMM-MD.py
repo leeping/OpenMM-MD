@@ -820,6 +820,11 @@ print( " #| (Hosted @ github.com/leeping/OpenMM-MD) |#")
 print( " #|  Use the -h argument for detailed help  |#")
 print( " #===========================================#")
 print()
+print()
+print('OpenMM Version:', Platform.getOpenMMVersion())
+print('Git Revision:', version.git_revision)
+print()
+
 
 parser = argparse.ArgumentParser()
 add_argument(parser, 'pdb', nargs=1, metavar='input.pdb', help='Specify one PDB or AMBER inpcrd file \x1b[1;91m(Required)\x1b[0m', type=str)
