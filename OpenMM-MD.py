@@ -444,7 +444,7 @@ def bak(fnm):
     oldfnm = fnm
     if os.path.exists(oldfnm):
         base, ext = os.path.splitext(fnm)
-        i = 1
+        i = 0
         while os.path.exists(fnm):
             fnm = "%s_%i%s" % (base,i,ext)
             i += 1
@@ -857,7 +857,7 @@ class ProgressReport(object):
         # The time step at the creation of this report.
         self._first = first
         self.run_time = 0.0*picosecond
-        self.rt00 = 0.0*picosecond
+        self.rt00 = first * args.timestep * femtosecond
         self.t0 = time.time()
 
     def describeNextReport(self, simulation):
@@ -898,7 +898,8 @@ class ProgressReport(object):
         kinetic /= self._units['kinetic']
         energy = kinetic + potential
         pct = 100 * float(simulation.currentStep - self._first) / self._total
-        self.run_time = float(simulation.currentStep - self._first) * args.timestep * femtosecond
+        #self.run_time = float(simulation.currentStep - self._first) * args.timestep * femtosecond
+        self.run_time = float(simulation.currentStep) * args.timestep * femtosecond
         if pct != 0.0:
             timeleft = (time.time()-self.t0)*(100.0 - pct)/pct
         else:
@@ -963,6 +964,21 @@ class EnergyReporter(object):
     def __del__(self):
         if self._openedFile:
             self._out.close()
+
+class StateXMLReporter(object):
+    def __init__(self, file, reportInterval):
+        self._reportInterval = reportInterval
+        self._file = file
+
+    def describeNextReport(self, simulation):
+        steps = self._reportInterval - simulation.currentStep%self._reportInterval
+        return (steps, False, False, False, False)
+
+    def report(self, simulation, state):
+        # Back up the existing file
+        if os.path.exists(self._file):
+            shutil.move(self._file, self._file+".bak")
+        simulation.saveState(self._file)
 
 class RestartReporter(object):
     def __init__(self, file, reportInterval, integrator, timestep):
@@ -1192,8 +1208,18 @@ else:
         ex_force.addPerParticleParameter('x0')
         ex_force.addPerParticleParameter('y0')
         ex_force.addPerParticleParameter('z0')
+        if os.path.exists(args.pos_res_atoms):
+            logger.info("Reading restraint atom list from %s" % args.pos_res_atoms)
+            pos_res_atoms = uncommadash(open(args.pos_res_atoms).read())
+        else:
+            try:
+                logger.info("Using the following restraint atom list: %s" % args.pos_res_atoms)
+                pos_res_atoms = uncommadash(args.pos_res_atoms)
+            except:
+                raise ValueError("Restraint atom list %s is invalid or not found!" % args.pos_res_atoms)
+        logger.info("Setting harmonic restraint to original position for %i atoms with k = %.3f kJ/mol/nm^2" % (len(pos_res_atoms), args.pos_res_k))
         # Set x0,y0,z0 for each atom using its position
-        for atom_idx in uncommadash(args.pos_res_atoms):
+        for atom_idx in pos_res_atoms:
             ex_force.addParticle(atom_idx, pdb.positions[atom_idx])
         # Add force to system
         system.addForce(ex_force)
@@ -1491,48 +1517,62 @@ for line in args.record():
 #| Run dynamics for equilibration, or load restart information |#
 #===============================================================#
 if os.path.exists(args.restart_filename) and args.read_restart:
-    print("Restarting simulation from the restart file.")
-    # Load information from the restart file.
-    r_positions, r_velocities, r_boxes = pickle.load(open(args.restart_filename, 'rb'))
-    # Can uncomment this to write in NumPy format.. 
-    # r_positions_npy = np.array(r_positions)
-    # r_velocities_npy = np.array(r_velocities)
-    # r_boxes_npy = np.array(r_boxes)
-    # np.savetxt('r_positions.txt', r_positions_npy)
-    # np.savetxt('r_velocities.txt', r_velocities_npy)
-    # np.savetxt('r_boxes.txt', r_boxes_npy)
-    # sys.exit()
-    # NOTE: Periodic box vectors must be set FIRST
-    if pbc:
-        simulation.context.setPeriodicBoxVectors(r_boxes[0] * nanometer,r_boxes[1] * nanometer, r_boxes[2] * nanometer)
-    simulation.context.setPositions(r_positions * nanometer)
-    if args.integrator not in ["velocity-verlet", "mtsvvvr", "mtslangevin"]:
-        # We will attempt to reconstruct the leapfrog velocities.  First obtain initial velocities.
-        v0 = r_velocities * nanometer / picosecond
-        frc = simulation.context.getState(getForces=True).getForces()
-        # Obtain masses.
-        mass = []
-        for i in range(simulation.context.getSystem().getNumParticles()):
-            mass.append(simulation.context.getSystem().getParticleMass(i)/dalton)
-        mass *= dalton
-        # Get accelerations.
-        accel = []
-        for i in range(simulation.context.getSystem().getNumParticles()):
-            accel.append(frc[i] / mass[i] / (kilojoule/(nanometer*mole*dalton)))# / (kilojoule/(nanometer*mole*dalton)))
-        accel *= kilojoule/(nanometer*mole*dalton)
-        # Propagate velocities backward by half a time step.
-        dv = femtosecond * accel
-        dv *= (-0.5 * args.timestep)
-        vmdt2 = []
-        for i in range(simulation.context.getSystem().getNumParticles()):
-            vmdt2.append((v0[i]/(nanometer/picosecond)) + (dv[i]/(nanometer/picosecond)))
-        vmdt2 *= nanometer/picosecond
-        # Assign velocities.
-        simulation.context.setVelocities(vmdt2)
-        simulation.context.applyVelocityConstraints(0.0001)
+    print("Restarting simulation from the restart %s file." % args.restart_filename)
+    if args.restart_filename.endswith('.chk'): 
+        # Use binary checkpoint file to restart.
+        simulation.loadCheckpoint(args.restart_filename)
+        first = simulation.currentStep
+    elif args.restart_filename.endswith('.xml'): 
+        # Use state.xml file to restart.
+        simulation.loadState(args.restart_filename)
+        first = simulation.currentStep
+    elif args.restart_filename.endswith('.p'): 
+        # "Natively" implemented restart format using pickle.
+        # Load information from the restart file.
+        r_positions, r_velocities, r_boxes = pickle.load(open(args.restart_filename, 'rb'))
+        # Can uncomment this to write in NumPy format.. 
+        # r_positions_npy = np.array(r_positions)
+        # r_velocities_npy = np.array(r_velocities)
+        # r_boxes_npy = np.array(r_boxes)
+        # np.savetxt('r_positions.txt', r_positions_npy)
+        # np.savetxt('r_velocities.txt', r_velocities_npy)
+        # np.savetxt('r_boxes.txt', r_boxes_npy)
+        # sys.exit()
+        # NOTE: Periodic box vectors must be set FIRST
+        if pbc:
+            simulation.context.setPeriodicBoxVectors(r_boxes[0] * nanometer,r_boxes[1] * nanometer, r_boxes[2] * nanometer)
+        simulation.context.setPositions(r_positions * nanometer)
+        if args.integrator not in ["velocity-verlet", "mtsvvvr", "mtslangevin"]:
+            # We will attempt to reconstruct the leapfrog velocities.  First obtain initial velocities.
+            v0 = r_velocities * nanometer / picosecond
+            frc = simulation.context.getState(getForces=True).getForces()
+            # Obtain masses.
+            mass = []
+            for i in range(simulation.context.getSystem().getNumParticles()):
+                mass.append(simulation.context.getSystem().getParticleMass(i)/dalton)
+            mass *= dalton
+            # Get accelerations.
+            accel = []
+            for i in range(simulation.context.getSystem().getNumParticles()):
+                accel.append(frc[i] / mass[i] / (kilojoule/(nanometer*mole*dalton)))# / (kilojoule/(nanometer*mole*dalton)))
+            accel *= kilojoule/(nanometer*mole*dalton)
+            # Propagate velocities backward by half a time step.
+            dv = femtosecond * accel
+            dv *= (-0.5 * args.timestep)
+            vmdt2 = []
+            for i in range(simulation.context.getSystem().getNumParticles()):
+                vmdt2.append((v0[i]/(nanometer/picosecond)) + (dv[i]/(nanometer/picosecond)))
+            vmdt2 *= nanometer/picosecond
+            # Assign velocities.
+            simulation.context.setVelocities(vmdt2)
+            simulation.context.applyVelocityConstraints(0.0001)
+        else:
+            simulation.context.setVelocities(r_velocities * nanometer / picosecond)
+        first = 0
+        # print("Saving state to %s.xml." % args.restart_filename[:-2]+'.xml')
+        # simulation.saveState("%s.xml" % args.restart_filename[:-2]+'.xml')
     else:
-        simulation.context.setVelocities(r_velocities * nanometer / picosecond)
-    first = 0
+        raise RuntimeError("Restart file format not recognized")
 else:
     # Set initial positions.
     simulation.context.setPositions(modelr.positions)
@@ -1592,9 +1632,18 @@ if args.dcd_report_interval > 0:
     simulation.reporters.append(DCDReporter(args.dcd_report_filename, args.dcd_report_interval))
 
 if args.restart_interval > 0:
+    # This backup is different from the backup that happens during the report. It is intended to preserve
+    # the restart file that was used to start the current simulation. During the report, the XML and .p reporters
+    # will create a backup of the current restart file to <file>.bak to prevent data corruption that may happen if the
+    # new file was not properly written.
     bak(args.restart_filename)
     logger.info("Restart information will be written to %s every %i steps" % (args.restart_filename, args.restart_interval))
-    simulation.reporters.append(RestartReporter(args.restart_filename, args.restart_interval, args.integrator, args.timestep))
+    if args.restart_filename.endswith('.chk'):
+        simulation.reporters.append(CheckpointReporter(args.restart_filename, args.restart_interval))
+    elif args.restart_filename.endswith('.xml'):
+        simulation.reporters.append(StateXMLReporter(args.restart_filename, args.restart_interval))
+    elif args.restart_filename.endswith('.p'):
+        simulation.reporters.append(RestartReporter(args.restart_filename, args.restart_interval, args.integrator, args.timestep))
 
 if 'eda_report_interval' in args.ActiveOptions and args.eda_report_interval > 0:
     bak(args.eda_report_filename)
