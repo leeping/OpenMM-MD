@@ -440,6 +440,37 @@ def MTSLangevinIntegrator(temperature, collision_rate, timestep, system, ninners
     integrator = openmm.MTSLangevinIntegrator(temperature, collision_rate, timestep, [(0,ninnersteps), (1,1)])
     return integrator
 
+def MTSIntegrator(timestep, system, ninnersteps=4):
+    """
+    MTSIntegrator implements the rRESPA multiple time step integration algorithm.
+
+    ARGUMENTS
+
+    timestep (numpy.unit.Quantity compatible with femtoseconds) - the integration timestep
+    system (simtk.openmm.System) - system whose forces will be partitioned
+    ninnersteps (int) - number of inner timesteps (default: 4)
+
+    RETURNS
+
+    integrator (openmm.MTSIntegrator) - a multiple timestep integrator
+
+    """
+    # Multiple timestep Langevin integrator.
+    for i in system.getForces():
+        if i.__class__.__name__ in ["NonbondedForce", "CustomNonbondedForce", "AmoebaVdwForce", "AmoebaMultipoleForce"]:
+            # Slow force.
+            print(i.__class__.__name__, "is a Slow Force")
+            i.setForceGroup(1)
+        else:
+            print(i.__class__.__name__, "is a Fast Force")
+            # Fast force.
+            i.setForceGroup(0)
+
+    import openmm
+    
+    integrator = openmm.MTSIntegrator(timestep, [(0,ninnersteps), (1,1)])
+    return integrator
+
 def bak(fnm):
     oldfnm = fnm
     if os.path.exists(oldfnm):
@@ -716,11 +747,11 @@ class SimulationOptions(object):
                     val = line.replace(s[0],'',1).strip()
                     self.UserOptions[key] = val
         # Now go through the logic of determining which options are activated.
-        self.set_active('integrator','verlet',str,"Molecular dynamics integrator",allowed=["verlet","langevin","langevinmiddle","velocity-verlet","mtsvvvr","mtslangevin"])
+        self.set_active('integrator','verlet',str,"Molecular dynamics integrator",allowed=["verlet","langevin","langevinmiddle","velocity-verlet","mts","mtsvvvr","mtslangevin"])
         self.set_active('minimize',False,bool,"Specify whether to minimize the energy before running dynamics.")
         self.set_active('timestep',1.0,float,"Time step in femtoseconds.")
         self.set_active('hydrogen_mass',1.0,float,"Hydrogen mass in amu (set to 4 to enable 4 fs time step).")
-        self.set_active('innerstep',0.5,float,"Inner time step in femtoseconds for MTS integrator.",depend=(self.integrator in ["mtsvvvr", "mtslangevin"]))
+        self.set_active('innerstep',0.5,float,"Inner time step in femtoseconds for MTS integrator.",depend=(self.integrator in ["mts", "mtsvvvr", "mtslangevin"]))
         self.set_active('restart_filename','restart.p',str,"Restart information will be read from / written to this file (will be backed up).")
         self.set_active('read_restart',True,bool,"Restart simulation from the restart file.",
                         depend=(os.path.exists(self.restart_filename)), msg="Cannot restart; file specified by restart_filename does not exist.")
@@ -777,7 +808,7 @@ class SimulationOptions(object):
         self.set_active('dcd_report_interval',0,int,"Specify a timestep interval for DCD reporter.")
         self.set_active('dcd_report_filename',"output_%s.dcd" % basename,str,"Specify an file name for writing output DCD file.",
                         depend=(self.dcd_report_interval > 0), msg="dcd_report_interval needs to be set to a whole number.")
-        self.set_active('eda_report_interval',0,int,"Specify a timestep interval for Energy reporter.", clash=(self.integrator in ["mtsvvvr", "mtslangevin"]), msg="EDA reporter incompatible with MTS integrator.")
+        self.set_active('eda_report_interval',0,int,"Specify a timestep interval for Energy reporter.", clash=(self.integrator in ["mts", "mtsvvvr", "mtslangevin"]), msg="EDA reporter incompatible with MTS integrator.")
         self.set_active('eda_report_filename',"output_%s.eda" % basename,str,"Specify an file name for writing output Energy file.",
                         depend=(self.eda_report_interval is not None and self.eda_report_interval > 0), msg="eda_report_interval needs to be set to a whole number.")
         if self.pmegrid != None:
@@ -1391,6 +1422,9 @@ def NVEIntegrator():
     elif args.integrator == "velocity-verlet":
         logger.info("Creating a Velocity Verlet integrator with %.2f fs timestep." % args.timestep)
         integrator = VelocityVerletIntegrator(args.timestep * femtosecond)
+    elif args.integrator == "mts":
+        logger.info("Creating a multiple timestep rRESPA integrator with %.2f / %.2f fs outer/inner timestep." % (args.timestep, args.innerstep))
+        integrator = MTSIntegrator(args.timestep * femtosecond, system, int(args.timestep / args.innerstep))
     return integrator
 
 if sysxml_thermo:
@@ -1466,7 +1500,7 @@ if args.platform == 'CUDA':
 logger.info("Creating the Simulation object")
 # Get the number of forces and set each force to a different force group number.
 nfrc = system.getNumForces()
-if args.integrator not in ['mtsvvvr', 'mtslangevin']:
+if args.integrator not in ['mts', 'mtsvvvr', 'mtslangevin']:
     for i in range(nfrc):
         system.getForce(i).setForceGroup(i)
 for i in range(nfrc):
@@ -1582,7 +1616,7 @@ else:
     # Set initial positions.
     simulation.context.setPositions(modelr.positions)
     print("Initial potential is:", simulation.context.getState(getEnergy=True).getPotentialEnergy())
-    if args.integrator not in ['mtsvvvr', 'mtslangevin']:
+    if args.integrator not in ['mts', 'mtsvvvr', 'mtslangevin']:
         eda = EnergyDecomposition(simulation)
         eda_kcal = OrderedDict([(i, "%10.4f" % (j/4.184)) for i, j in eda.items()])
         printcool_dictionary(eda_kcal, title="Energy Decomposition (kcal/mol)")
