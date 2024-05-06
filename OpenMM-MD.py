@@ -811,6 +811,7 @@ class SimulationOptions(object):
         self.set_active('eda_report_interval',0,int,"Specify a timestep interval for Energy reporter.", clash=(self.integrator in ["mts", "mtsvvvr", "mtslangevin"]), msg="EDA reporter incompatible with MTS integrator.")
         self.set_active('eda_report_filename',"output_%s.eda" % basename,str,"Specify an file name for writing output Energy file.",
                         depend=(self.eda_report_interval is not None and self.eda_report_interval > 0), msg="eda_report_interval needs to be set to a whole number.")
+        self.set_active('maxvf_report_interval',0,int,"Whether to print the maximum velocity/force report.")
         if self.pmegrid != None:
             assert len(self.pmegrid) == 3, "The pme argument must be a length-3 list of integers"
         self.set_active('tinkerpath',None,str,"Specify a path for TINKER executables for running AMOEBA validation.")
@@ -973,6 +974,39 @@ class ProgressReport(object):
         if self._openedFile:
             self._out.close()
 
+class MaxVFReporter(object):
+    def __init__(self, file, reportInterval):
+        self._reportInterval = reportInterval
+        self._openedFile = isinstance(file, str)
+        self._initial = True
+        if self._openedFile:
+            self._out = open(file, 'w')
+        else:
+            self._out = file
+
+    def describeNextReport(self, simulation):
+        steps = self._reportInterval - simulation.currentStep%self._reportInterval
+        return (steps, False, False, False, True)
+
+    def report(self, simulation, state):
+        my_state = simulation.context.getState(getEnergy=True,getPositions=True,getVelocities=True,getForces=True)
+        frc = my_state.getForces(asNumpy=True) / (kilocalorie_per_mole/angstrom)
+        frc_nrm = np.linalg.norm(frc, axis=1)
+        vel = my_state.getVelocities(asNumpy=True) / (meter/second)
+        vel_nrm = np.linalg.norm(vel, axis=1)
+        logger.info("Velocity report (m/s):     Mean = %10.3f Stdev = %10.3f" % (np.mean(vel_nrm), np.std(vel_nrm)))
+        vel_rank = np.argsort(vel_nrm)[::-1]
+        logger.info("Top 10 velocities: " + ' '.join(["%10i" % vel_rank[i] for i in range(10)]))
+        logger.info("                   " + ' '.join(["%10.3f" % vel_nrm[vel_rank[i]] for i in range(10)]))
+        logger.info("Force report (kcal/mol/A): Mean = %10.3f Stdev = %10.3f" % (np.mean(frc_nrm), np.std(frc_nrm)))
+        frc_rank = np.argsort(frc_nrm)[::-1]
+        logger.info("Top 10 forces:     " + ' '.join(["%10i" % frc_rank[i] for i in range(10)]))
+        logger.info("                   " + ' '.join(["%10.3f" % frc_nrm[frc_rank[i]] for i in range(10)]))
+
+    def __del__(self):
+        if self._openedFile:
+            self._out.close()
+
 class EnergyReporter(object):
     def __init__(self, file, reportInterval, first=0):
         self._reportInterval = reportInterval
@@ -1104,7 +1138,7 @@ if Deserialize:
         logger.info("Detected AMOEBA system!")
         for f in forces:
             if f.__class__.__name__ == "AmoebaMultipoleForce":
-                if 'polarization_direct' in args.UserOptions and 'polarization_direct' in args.ActiveOptions:
+                if 'polarization_direct' in args.UserOptions and 'polarization_direct' in args.ActiveOptions and args.polarization_direct:
                     logger.info("Setting direct polarization")
                     f.setPolarizationType(1)
                     args.deactivate('polar_eps', "Not relevant for direct polarization")
@@ -1139,7 +1173,7 @@ else:
     # This creates a system from a force field XML file.
     forcefield = ForceField(*xmlfnm)
     if any(['Amoeba' in f.__class__.__name__ for f in forcefield._forces]):
-        logger.info("Detected AMOEBA system!")
+        logger.info("Detected AMOEBA force field!")
         settings += [('constraints', args.constraints), ('rigidWater', args.rigidwater)]
         if pbc:
             logger.info("Periodic AMOEBA system uses PME regardless of user-supplied options.")
@@ -1169,7 +1203,7 @@ else:
             args.deactivate('vdw_switch', "Deactivated because nonbonded method forced to NoCutoff")
             args.deactivate('switch_distance', "Deactivated because nonbonded method forced to NoCutoff")
             settings.append(('nonbondedMethod', NoCutoff))
-        if any(['AmoebaMultipoleForce' in f.__class__.__name__ for f in forcefield._forces]):
+        if any(['AmoebaMultipole' in f.__class__.__name__ for f in forcefield._forces]):
             if args.polarization_direct:
                 logger.info("Setting direct polarization")
                 args.deactivate('polar_eps', "Not relevant for direct polarization")
@@ -1659,6 +1693,10 @@ if args.report_interval > 0:
     logger.info("Progress will be reported every %i steps" % args.report_interval)
     simulation.reporters.append(ProgressReport(sys.stdout, args.report_interval, simulation, args.production, first))
     Prog = simulation.reporters[-1]
+
+if args.maxvf_report_interval > 0:
+    logger.info("Maximum velocity and force will be reported every %i steps" % args.maxvf_report_interval)
+    simulation.reporters.append(MaxVFReporter(sys.stdout, args.maxvf_report_interval))
 
 if args.pdb_report_interval > 0:
     bak(args.pdb_report_filename)
